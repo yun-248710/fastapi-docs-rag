@@ -11,10 +11,17 @@
 # ============================================================================
 
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
 import pytest
+
+# ⚠️ 回归套件必须保持「离线、免费、无 key」：强制关掉查询翻译。
+#    应用默认是开的（每问多一次模型调用换 +2 道题），但测试不能有这个成本，
+#    否则 110 条用例会开始联网、花钱、被限流。
+#    必须在加载被测模块之前设置 —— 这个开关是模块级读取的。
+os.environ["QUERY_TRANSLATION"] = "0"
 
 ROOT = Path(__file__).parent
 if str(ROOT) not in sys.path:

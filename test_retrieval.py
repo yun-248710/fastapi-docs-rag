@@ -157,16 +157,19 @@ def test_db_ready_rejects_partial_library(ta, tmp_path):
     assert ta.db_ready(str(empty), 10) is False, "空目录必须拒绝"
 
 
-def test_query_translation_off_by_default(ta):
-    """【回归套件必须保持离线免费】查询翻译默认必须是关的
+def test_regression_suite_forces_translation_off(ta):
+    """【回归套件必须保持离线免费】conftest 必须把查询翻译压成关闭
 
-    开了翻译，每次检索都会多一次模型调用 —— 这 110 条用例会从
-    "本地 embedding、零成本、无 key 可跑" 变成"要联网、要花钱、会限流"。
-    所以默认值本身就是一道防线，这里钉住它。
+    应用默认是**开**的（每问多一次模型调用，换 L1 45→47）。但测试不能有这个成本：
+    110 条用例会从「本地 embedding、零成本、无 key 可跑」变成「要联网、要花钱、会限流」。
+    所以 conftest.py 在加载模块前注入 QUERY_TRANSLATION=0，这条测试钉住它。
+
+    ⚠️ 这里失败说明 conftest 的注入被绕过了（比如有人先 import 了模块）——
+    先查 import 顺序，不要改断言。
     """
     assert ta.QUERY_TRANSLATION is False, (
-        "QUERY_TRANSLATION 默认被打开了 —— 回归套件会开始调模型。"
-        "要 A/B 请显式设环境变量，别改默认值。"
+        "回归套件里 QUERY_TRANSLATION 被打开了 —— 会开始调模型、联网、花钱。"
+        "看 conftest.py 顶部那行 os.environ 是否还在、是否在 import 之前。"
     )
     q = "FastAPI 怎么定义路径参数？"
     assert ta._translate_for_bm25(q) == q, "翻译关闭时应当原样返回"

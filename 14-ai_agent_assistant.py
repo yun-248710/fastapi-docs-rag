@@ -448,14 +448,18 @@ _PUNCT_ONLY = re.compile(r"^[\W_]+$", re.UNICODE)
 # 只会让它打印 "BM25 0.00" 错标，不会报错）。
 BM25_K = 3
 
-# 查询翻译开关（默认关）。
+# 查询翻译开关（应用默认开，测试强制关）。
 #   开 = 中文问题先翻成英文关键词，**只喂给 BM25**，向量路仍用原句。
 #   为什么只给 BM25：向量路（bge-m3）跨语言本来就强，换英文 query 反而会改变它的
 #   排序；而 BM25 是纯字面匹配，中文 token 打英文语料命中率接近 0
 #   （实测净贡献只有 1 题）。所以缺的那条腿是 BM25，要补就补它。
-#   为什么不默认开：开了以后每次检索都要调一次模型，pytest 那 109 条就不再
-#   "免费、离线、无 key" 了。默认关，A/B 时显式打开。
-QUERY_TRANSLATION = os.environ.get("QUERY_TRANSLATION", "0") == "1"
+#   代价：每问多一次模型调用（约 +0.5~1.5s），实测 L1 45/50 → 47/50。
+#
+#   ⚠️ 默认值的分叉（2026-10-22）：一个环境变量服务两个互相冲突的消费者 ——
+#      · 交互应用：慢一点换准确率，值 → 默认开
+#      · 回归测试：必须离线免费、一次调用都不能有 → conftest.py 强制注入 0
+#   所以默认值在这边设 1，测试侧在 conftest 里覆盖。改默认值前先看那条测试。
+QUERY_TRANSLATION = os.environ.get("QUERY_TRANSLATION", "1") == "1"
 
 _TRANSLATE_PROMPT = ChatPromptTemplate.from_messages([
     ("system",
