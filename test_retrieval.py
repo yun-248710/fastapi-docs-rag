@@ -179,6 +179,11 @@ def _answer(ta, question: str) -> str:
     """
     import uuid
 
+    # 没配密钥时明确跳过，而不是让 401 抛穿用例：
+    # 这一层（默认 57 条）本来就不需要密钥，只有 -m llm 才要。
+    if ta._PROBLEMS:
+        pytest.skip("缺少 ARK 配置（" + "、".join(ta._PROBLEMS) + "），跳过需要调模型的用例")
+
     return ta.assistant.invoke(
         {"question": question},
         config={"configurable": {"session_id": f"pytest-{uuid.uuid4().hex}"}},
