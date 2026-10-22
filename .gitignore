@@ -1,0 +1,57 @@
+# ============================================================================
+# 白名单模式：先排除一切，再逐个放行。
+# 目的：GitHub 上只呈现这个项目的「核心资产」，不暴露密钥、向量库和大文件。
+#
+# ⚠️ 为什么用白名单而不是黑名单：黑名单会漏 —— 以后新产生的文件默认就会被跟踪。
+#    白名单下，任何新文件默认都不进仓库，要展示必须显式加一行。
+#
+# ⚠️ 关键：settings.py 和 .env 里有明文 API Key，绝不放行。
+# ============================================================================
+
+/*
+!.gitignore
+!/.gitattributes
+
+# ---- 项目说明 ----
+!/README.md
+!/requirements.txt
+!/LICENSE
+!/.env.example
+
+# ---- 主程序 ----
+!/14-ai_agent_assistant.py
+
+# ---- 评测与回归测试 ----
+!/eval_cases.py
+!/eval_judge.py
+!/eval_fastapi.py
+!/audit_probes.py
+!/retrieval_trace.py
+!/conftest.py
+!/pytest.ini
+!/test_retrieval.py
+
+# ---- 评测证据：只留 3 份，各自支撑 README 里的一条结论 ----
+# ⚠️ 注意：.gitignore 不支持行尾注释 —— 规则后面写 "# xxx" 会让整行变成一个匹配不到的模式。
+#    注释必须单独成行（这个坑本项目踩过一次）。
+#
+# nomic 768 维基线 → L1 5/29（来源命中 2/24）
+!/eval_fastapi_baseline.txt
+# 换 bge-m3 后 → L1 20/29（来源命中 18/24）
+!/eval_bgem3_runA.txt
+# 最终配置 → L1 23/29（来源命中 21/24）
+!/eval_glm_newruler.txt
+#
+# 原先还跟踪了 eval_bm25_gate.txt，用来证明"闸门必要"。但那份日志是**旧语料（AI Agent 书）**
+# 跑出来的（满篇 chapter10.md / 多 Agent 协作），放在 FastAPI 仓库里只会误导人 ——
+# 已移出跟踪，文件仍留在本地。现语料的闸门证据见 README 决策 3（GIL 那题 BM25 3.77 被拦）。
+
+# ============================================================================
+# 以下全部排除（/* 已经挡住，这里只做备忘）
+#
+# 密钥类：.env  settings.py  *.bak
+# 数据类：chroma_db_ta*（向量库）  docs_fastapi/ docs/ docs_agent/（语料）
+# 日志类：其余 eval_*.txt / rebuild_*.txt / traces.jsonl
+# 历史类：01~13 号课程 demo（README 里一句话提迭代过程即可）
+# 环境类：__pycache__/  .idea/  .venv/  output/
+# ============================================================================

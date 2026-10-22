@@ -1,0 +1,261 @@
+Building prefix dict from the default dictionary ...
+Loading model from cache C:\Users\黄计云\AppData\Local\Temp\jieba.cache
+Loading model cost 0.743 seconds.
+Prefix dict has been built successfully.
+C:\Users\黄计云\Desktop\ic_demo\eval_fastapi.py:30: LangChainPendingDeprecationWarning: RunnableWithMessageHistory is deprecated. Use LangGraph's built-in persistence instead.
+  spec.loader.exec_module(ta)
+【已加载持久化知识库】
+======================================================================
+FastAPI 语料 RAG 评测（29 题｜L1 含来源归因）
+======================================================================
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+[1] (index.md · 向量) │  fastapi run                                        │  │  …
+[2] (release-notes.md · 向量) │  fastapi run                                        │  │  …
+[3] (index.md · 向量) # About { #about }  About FastAPI, its design, inspiration a…
+[4] (index.md · 向量) ---  Coming back to the previous code example, **FastAPI** w…
+[5] (release-notes.md · BM25 13.41) * Add translation to Chinese for [Path Parameters and Numeri…
+[6] (release-notes.md · BM25 13.20) * Add translation to Chinese for [Contributing - 开发 - 贡献](ht…
+---
+[WARN] L1:FAIL（关键词✗来源✗）  L2:PASS  [kb] FastAPI 怎么定义路径参数？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+[1] (index.md · 向量) │  fastapi run                                        │  │  …
+[2] (release-notes.md · 向量) │  fastapi run                                        │  │  …
+[3] (index.md · 向量) # About { #about }  About FastAPI, its design, inspiration a…
+[4] (index.md · 向量) ---  Coming back to the previous code example, **FastAPI** w…
+[5] (release-notes.md · BM25 14.14) * Add translation to Chinese for [Help FastAPI - Get Help - …
+[6] (release-notes.md · BM25 12.42) * Add translation to Chinese for [Query Parameters and Strin…
+---
+[WARN] L1:FAIL（关键词✗来源✗）  L2:PASS  [kb] FastAPI 怎么声明查询参数？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+[1] (migrate-from-pydantic-v1-to-pydantic-v2.md · 向量) ///  If `bump-pydantic` doesn't work for your use case, you …
+[2] (release-notes.md · 向量) ### Upgrades  * 📌 Update minimum version of Pydantic to >=1.…
+[3] (release-notes.md · 向量) * Upgrade support to Pydantic version 0.32.2 and update inte…
+[4] (release-notes.md · 向量) ### Refactors  * ♻️ Refactor tests for new Pydantic 2.2.1. P…
+[5] (release-notes.md · BM25 8.36) * Add translation to Chinese for [Body - Multiple Parameters…
+[6] (release-notes.md · BM25 7.16) * Add translation to Chinese for [Body - Fields - 请求体 - 字段](…
+---
+[WARN] L1:FAIL（关键词✗来源✗）  L2:PASS  [kb] 怎么用 Pydantic 模型接收请求体？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+(向量路 0 条过阈值 0.58，BM25 补召已禁用 → 上下文为空)
+(另有 4 个向量片段未过阈值，相关度 [0.56, 0.56, 0.55, 0.55])
+---
+[WARN] L1:FAIL（召回为空）  L2:PASS  [kb] 怎么给 Pydantic 模型的字段加约束？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+(向量路 0 条过阈值 0.58，BM25 补召已禁用 → 上下文为空)
+(另有 4 个向量片段未过阈值，相关度 [0.34, 0.33, 0.33, 0.32])
+---
+[WARN] L1:FAIL（召回为空）  L2:PASS  [kb] 怎么定义嵌套的请求体模型？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+(向量路 0 条过阈值 0.58，BM25 补召已禁用 → 上下文为空)
+(另有 4 个向量片段未过阈值，相关度 [0.31, 0.31, 0.3, 0.3])
+---
+[WARN] L1:FAIL（召回为空）  L2:PASS  [kb] 怎么给查询参数加长度和正则校验？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+(向量路 0 条过阈值 0.58，BM25 补召已禁用 → 上下文为空)
+(另有 4 个向量片段未过阈值，相关度 [0.37, 0.34, 0.34, 0.33])
+---
+[WARN] L1:FAIL（召回为空）  L2:PASS  [kb] 怎么校验路径参数是数字且大于某个值？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+[1] (index.md · 向量) │  fastapi run                                        │  │  …
+[2] (release-notes.md · 向量) │  fastapi run                                        │  │  …
+[3] (index.md · 向量) # About { #about }  About FastAPI, its design, inspiration a…
+[4] (index.md · 向量) ---  Coming back to the previous code example, **FastAPI** w…
+[5] (release-notes.md · BM25 16.19) * Add translation to Chinese for [Body - Multiple Parameters…
+[6] (release-notes.md · BM25 12.12) * Add translation to Chinese for [Query Parameters and Strin…
+---
+[WARN] L1:FAIL（关键词✗来源✗）  L2:PASS  [kb] FastAPI 怎么读取请求头参数？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+[1] (index.md · 向量) │  fastapi run                                        │  │  …
+[2] (release-notes.md · 向量) │  fastapi run                                        │  │  …
+[3] (parameters.md · 向量) ::: fastapi.Query  ::: fastapi.Path  ::: fastapi.Body  ::: f…
+[4] (index.md · 向量) # About { #about }  About FastAPI, its design, inspiration a…
+[5] (release-notes.md · BM25 9.18) Read the new docs: [Header Parameter Models](https://fastapi…
+[6] (cookie-params.md · BM25 8.79) # Cookie Parameters { #cookie-parameters }  You can define C…
+---
+[OK ] L1:PASS  L2:PASS  [kb] FastAPI 怎么读取 Cookie？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+[1] (index.md · 向量) │  fastapi run                                        │  │  …
+[2] (release-notes.md · 向量) │  fastapi run                                        │  │  …
+[3] (index.md · 向量) # About { #about }  About FastAPI, its design, inspiration a…
+[4] (index.md · 向量) ---  Coming back to the previous code example, **FastAPI** w…
+[5] (help-fastapi.md · BM25 2.29) ## Try FastAPI Cloud { #try-fastapi-cloud }  The main fundin…
+[6] (fastapi.md · BM25 2.29) # `FastAPI` class  Here's the reference information for the …
+---
+[WARN] L1:FAIL（关键词✗来源✗）  L2:PASS  [kb] FastAPI 怎么接收上传的文件？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+[1] (index.md · 向量) │  fastapi run                                        │  │  …
+[2] (release-notes.md · 向量) │  fastapi run                                        │  │  …
+[3] (index.md · 向量) # About { #about }  About FastAPI, its design, inspiration a…
+[4] (index.md · 向量) ---  Coming back to the previous code example, **FastAPI** w…
+[5] (help-fastapi.md · BM25 2.29) ## Try FastAPI Cloud { #try-fastapi-cloud }  The main fundin…
+[6] (fastapi.md · BM25 2.29) # `FastAPI` class  Here's the reference information for the …
+---
+[WARN] L1:FAIL（关键词✗来源✗）  L2:PASS  [kb] FastAPI 怎么处理表单数据？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+(向量路 0 条过阈值 0.58，BM25 补召已禁用 → 上下文为空)
+(另有 4 个向量片段未过阈值，相关度 [0.31, 0.29, 0.28, 0.27])
+---
+[WARN] L1:FAIL（召回为空）  L2:PASS  [kb] 怎么限制接口响应返回的字段？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+(向量路 0 条过阈值 0.58，BM25 补召已禁用 → 上下文为空)
+(另有 4 个向量片段未过阈值，相关度 [0.31, 0.29, 0.28, 0.27])
+---
+[WARN] L1:FAIL（召回为空）  L2:PASS  [kb] 怎么设置接口返回的状态码？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+(向量路 0 条过阈值 0.58，BM25 补召已禁用 → 上下文为空)
+(另有 4 个向量片段未过阈值，相关度 [0.47, 0.45, 0.42, 0.42])
+---
+[WARN] L1:FAIL（召回为空）  L2:PASS  [kb] 怎么抛出自定义的 HTTP 错误？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+(向量路 0 条过阈值 0.58，BM25 补召已禁用 → 上下文为空)
+(另有 4 个向量片段未过阈值，相关度 [0.37, 0.35, 0.35, 0.35])
+---
+[WARN] L1:FAIL（召回为空）  L2:PASS  [kb] 怎么把一个类当作依赖使用？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+(向量路 0 条过阈值 0.58，BM25 补召已禁用 → 上下文为空)
+(另有 4 个向量片段未过阈值，相关度 [0.51, 0.5, 0.49, 0.49])
+---
+[WARN] L1:FAIL（召回为空）  L2:PASS  [kb] 带 yield 的依赖是怎么工作的？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+(向量路 0 条过阈值 0.58，BM25 补召已禁用 → 上下文为空)
+(另有 4 个向量片段未过阈值，相关度 [0.32, 0.32, 0.32, 0.31])
+---
+[WARN] L1:FAIL（召回为空）  L2:PASS  [kb] 怎么让接口在返回后继续执行后台任务？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+[1] (index.md · 向量) │  fastapi run                                        │  │  …
+[2] (release-notes.md · 向量) │  fastapi run                                        │  │  …
+[3] (index.md · 向量) # About { #about }  About FastAPI, its design, inspiration a…
+[4] (index.md · 向量) ---  Coming back to the previous code example, **FastAPI** w…
+[5] (help-fastapi.md · BM25 2.29) ## Try FastAPI Cloud { #try-fastapi-cloud }  The main fundin…
+[6] (fastapi.md · BM25 2.29) # `FastAPI` class  Here's the reference information for the …
+---
+[WARN] L1:FAIL（关键词✗来源✗）  L2:PASS  [kb] FastAPI 里怎么做数据库连接？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+[1] (index.md · 向量) │  fastapi run                                        │  │  …
+[2] (release-notes.md · 向量) │  fastapi run                                        │  │  …
+[3] (index.md · 向量) # About { #about }  About FastAPI, its design, inspiration a…
+[4] (index.md · 向量) ---  Coming back to the previous code example, **FastAPI** w…
+[5] (help-fastapi.md · BM25 2.29) ## Try FastAPI Cloud { #try-fastapi-cloud }  The main fundin…
+[6] (fastapi.md · BM25 2.29) # `FastAPI` class  Here's the reference information for the …
+---
+[WARN] L1:FAIL（关键词✗来源✗）  L2:PASS  [kb] 怎么给 FastAPI 接口写测试？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+[1] (index.md · 向量) ## OAuth2 { #oauth2 }  OAuth2 is a specification that define…
+[2] (index.md · BM25 7.99) ::: fastapi.security.HTTPBasicCredentials  ## OAuth2 Authent…
+[3] (index.md · BM25 7.61) ///  ## OpenID Connect { #openid-connect }  OpenID Connect i…
+[4] (oauth2-scopes.md · BM25 6.98) # OAuth2 scopes { #oauth2-scopes }  You can use OAuth2 scope…
+(另有 3 个向量片段未过阈值，相关度 [0.56, 0.55, 0.55])
+---
+[WARN] L1:FAIL（来源✗）  L2:PASS  [kb] 怎么实现 OAuth2 密码模式的登录？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+(向量路 0 条过阈值 0.58，BM25 补召已禁用 → 上下文为空)
+(另有 4 个向量片段未过阈值，相关度 [0.56, 0.49, 0.49, 0.48])
+---
+[WARN] L1:FAIL（召回为空）  L2:PASS  [kb] 怎么用 JWT 做令牌认证？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+(向量路 0 条过阈值 0.58，BM25 补召已禁用 → 上下文为空)
+(另有 4 个向量片段未过阈值，相关度 [0.52, 0.32, 0.32, 0.32])
+---
+[WARN] L1:FAIL（召回为空）  L2:PASS  [kb] 怎么配置跨域 CORS？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+(向量路 0 条过阈值 0.58，BM25 补召已禁用 → 上下文为空)
+(另有 4 个向量片段未过阈值，相关度 [0.42, 0.42, 0.41, 0.39])
+---
+[WARN] L1:FAIL（召回为空）  L2:PASS  [kb] 怎么挂载静态文件目录？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+(向量路 0 条过阈值 0.58，BM25 补召已禁用 → 上下文为空)
+(另有 4 个向量片段未过阈值，相关度 [0.37, 0.37, 0.37, 0.36])
+---
+[WARN] L1:FAIL（召回为空）  L2:PASS  [kb] 怎么把请求体里的数据做部分更新？
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+(向量路 0 条过阈值 0.58，BM25 补召已禁用 → 上下文为空)
+(另有 4 个向量片段未过阈值，相关度 [0.39, 0.38, 0.37, 0.36])
+---
+[OK ] L1:PASS  L2:PASS  [oob] 今天天气怎么样？（召回 0 块）
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+(向量路 0 条过阈值 0.58，BM25 补召已禁用 → 上下文为空)
+(另有 4 个向量片段未过阈值，相关度 [0.29, 0.29, 0.29, 0.29])
+---
+[OK ] L1:PASS  L2:PASS  [oob] 北京有什么好吃的？（召回 0 块）
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+(向量路 0 条过阈值 0.58，BM25 补召已禁用 → 上下文为空)
+(另有 4 个向量片段未过阈值，相关度 [0.34, 0.33, 0.32, 0.32])
+---
+[OK ] L1:PASS  L2:PASS  [oob] 什么是量子纠缠？（召回 0 块）
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+(向量路 0 条过阈值 0.58，BM25 补召已禁用 → 上下文为空)
+(另有 4 个向量片段未过阈值，相关度 [0.46, 0.44, 0.42, 0.41])
+---
+[OK ] L1:PASS  L2:PASS  [oob] Python 的 GIL 是什么？（召回 0 块）
+
+--- 进上下文的片段（编号 = 回答里的 [n]）---
+[1] (index.md · 向量) │  fastapi run                                        │  │  …
+[2] (release-notes.md · 向量) │  fastapi run                                        │  │  …
+[3] (index.md · 向量) # About { #about }  About FastAPI, its design, inspiration a…
+[4] (index.md · 向量) ---  Coming back to the previous code example, **FastAPI** w…
+[5] (help-fastapi.md · BM25 2.29) ## Try FastAPI Cloud { #try-fastapi-cloud }  The main fundin…
+[6] (fastapi.md · BM25 2.29) # `FastAPI` class  Here's the reference information for the …
+---
+[WARN] L1:FAIL（泄漏6块）  L2:PASS  [oob] 怎么用 FastAPI 训练深度学习模型？（召回 6 块）
+----------------------------------------------------------------------
+检索命中  5/29
+回答通过  29/29
+其中「关键词对、来源错」的假阳性风险：1 条
+----------------------------------------------------------------------
+L1 失败清单：
+  · [关键词✗来源✗] 召回6块  FastAPI 怎么定义路径参数？
+  · [关键词✗来源✗] 召回6块  FastAPI 怎么声明查询参数？
+  · [关键词✗来源✗] 召回6块  怎么用 Pydantic 模型接收请求体？
+  · [召回为空] 召回0块  怎么给 Pydantic 模型的字段加约束？
+  · [召回为空] 召回0块  怎么定义嵌套的请求体模型？
+  · [召回为空] 召回0块  怎么给查询参数加长度和正则校验？
+  · [召回为空] 召回0块  怎么校验路径参数是数字且大于某个值？
+  · [关键词✗来源✗] 召回6块  FastAPI 怎么读取请求头参数？
+  · [关键词✗来源✗] 召回6块  FastAPI 怎么接收上传的文件？
+  · [关键词✗来源✗] 召回6块  FastAPI 怎么处理表单数据？
+  · [召回为空] 召回0块  怎么限制接口响应返回的字段？
+  · [召回为空] 召回0块  怎么设置接口返回的状态码？
+  · [召回为空] 召回0块  怎么抛出自定义的 HTTP 错误？
+  · [召回为空] 召回0块  怎么把一个类当作依赖使用？
+  · [召回为空] 召回0块  带 yield 的依赖是怎么工作的？
+  · [召回为空] 召回0块  怎么让接口在返回后继续执行后台任务？
+  · [关键词✗来源✗] 召回6块  FastAPI 里怎么做数据库连接？
+  · [关键词✗来源✗] 召回6块  怎么给 FastAPI 接口写测试？
+  · [来源✗] 召回4块  怎么实现 OAuth2 密码模式的登录？
+  · [召回为空] 召回0块  怎么用 JWT 做令牌认证？
+  · [召回为空] 召回0块  怎么配置跨域 CORS？
+  · [召回为空] 召回0块  怎么挂载静态文件目录？
+  · [召回为空] 召回0块  怎么把请求体里的数据做部分更新？
+  · [泄漏6块] 召回6块  怎么用 FastAPI 训练深度学习模型？
+======================================================================
+判读：L1 FAIL + L2 PASS = 模型在兜底（检索层有问题）
+      L1 PASS + L2 FAIL = 资料给了没用上（生成层有问题）
+      L1 来源✗        = 检索到了字面，但捞错了文件（数据/排序问题）

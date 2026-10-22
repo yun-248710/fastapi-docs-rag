@@ -1,0 +1,33 @@
+# 实测通过的版本（Windows / Python 3.11）
+#
+# 生成模型走「OpenAI 兼容接口」，所以用 langchain-openai，
+# 兼容火山方舟 / DeepSeek / 其他国产模型平台。
+
+# --- LangChain ---
+langchain==0.3.30
+langchain-core==0.3.86
+langchain-community==0.4.2
+langchain-chroma==1.1.0
+langchain-ollama==0.3.10
+langchain-openai==0.3.35
+langchain-text-splitters==1.1.2
+
+# --- 向量库 ---
+chromadb==1.5.9
+
+# --- 本地 embedding（需另装 Ollama 并 ollama pull bge-m3）---
+ollama==0.6.2
+
+# --- 关键词检索 ---
+rank-bm25==0.2.2
+jieba==0.42.1
+
+# --- 文档解析（支持 pdf / docx / txt / md）---
+pymupdf==1.28.2
+docx2txt==0.9
+
+# --- 密钥管理 ---
+python-dotenv==1.2.3
+
+# --- 测试 ---
+pytest==9.1.1
