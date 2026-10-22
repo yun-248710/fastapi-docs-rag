@@ -139,3 +139,73 @@ def case_category(case) -> str:
     if not srcs:
         return "unknown"
     return srcs[0].split("/")[0]
+
+
+# ============================================================================
+# 一致性与鲁棒性（2026-10-22 新增）
+#
+# 为什么单独建两组：前面的 CASES 测的是"这句话能不能查到"，测不到两件事 ——
+#   ① 同一问题的不同说法，结果会不会漂（一致性）
+#   ② 用户打错字、中英混输、乱加标点，系统还稳不稳（鲁棒性）
+# 这两类都是真实用户每天在做的事，而"单句正确率"看不出来。
+#
+# 参考：ai-engineering-toolkit 的 eval-harness-builder 把行为评测分成
+# refusal / consistency / robustness / calibration / adversarial 五类，
+# 本项目原先只有 refusal（库外拒答），这里补上中间两类。
+# ============================================================================
+
+# (组名, 期望来源, [同一问题的多种问法；第一个是基线问法])
+PARAPHRASE_GROUPS = [
+    ("路径参数", "tutorial/path-params", [
+        "FastAPI 怎么定义路径参数？",
+        "路径参数在 FastAPI 里怎么写？",
+        "FastAPI 中如何声明路径参数",
+        "怎么在路由里拿到 URL 上的 id？",
+    ]),
+    ("跨域 CORS", "tutorial/cors", [
+        "怎么配置跨域 CORS？",
+        "跨域怎么设置？",
+        "FastAPI 如何允许跨域请求",
+        "CORSMiddleware 怎么加",
+    ]),
+    ("JWT 认证", "tutorial/security/oauth2-jwt", [
+        "怎么用 JWT 做令牌认证？",
+        "JWT 认证怎么做",
+        "FastAPI 怎么生成和校验 token",
+    ]),
+    ("请求体", "tutorial/body", [
+        "怎么用 Pydantic 模型接收请求体？",
+        "POST 的数据怎么接？",
+        "请求体怎么定义成模型",
+    ]),
+]
+
+# (组名, 期望来源, 基线问法, 噪声问法, 噪声类型)
+# 断言方式：噪声问法不能比基线差。基线本来就查不到的题不参与判定
+# （否则测的是已知的检索缺口，不是噪声的影响）。
+NOISE_VARIANTS = [
+    ("路径参数", "tutorial/path-params",
+     "FastAPI 怎么定义路径参数？", "FastAPI 怎么定义路径参树？", "错别字"),
+    ("路径参数", "tutorial/path-params",
+     "FastAPI 怎么定义路径参数？", "FastAPI怎么定义路径参数", "无空格无问号"),
+    ("跨域 CORS", "tutorial/cors",
+     "怎么配置跨域 CORS？", "怎么配置跨玉 CORS？", "错别字"),
+    ("跨域 CORS", "tutorial/cors",
+     "怎么配置跨域 CORS？", "FastAPI 怎么 configure CORS", "中英混输"),
+    ("请求头", "tutorial/header-params",
+     "FastAPI 怎么读取请求头参数？", "FastAPI 怎么读取请求头参数？？", "重复全角标点"),
+    ("请求体", "tutorial/body",
+     "怎么用 Pydantic 模型接收请求体？", "怎么用 pydantic 模型接收请求体", "大小写+无问号"),
+]
+
+
+# 已测基线（2026-10-22，bge-m3 + 1919 块 + k=5）：
+#   一致性 11/14 命中（79%）——路径参数 4/4、CORS 3/4、JWT 2/3、请求体 2/3
+#   鲁棒性 4/5 与基线一致——唯一失败是"路径参树"（错别字打断了语义）
+# 阈值按基线留一档余量，用于防回归，不是"及格线"。
+PARAPHRASE_MIN_RATE = 0.6
+
+# 已知会失败的噪声问法：不隐藏，标成 xfail 当活记录。
+# "路径参树"测出来是唯一一个断掉的 —— 单字替换会把语义整段带偏，
+# 说明 bge-m3 对中文错别字不鲁棒。哪天它开始通过，说明补了纠错或换了模型。
+KNOWN_NOISE_FAILURES = {"FastAPI 怎么定义路径参树？"}

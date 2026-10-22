@@ -24,7 +24,10 @@ from pathlib import Path
 
 import pytest
 
-from eval_cases import KB_CASES, OOB_CASES, OOB_STRICT, OOB_EDGE
+from eval_cases import (
+    KB_CASES, OOB_CASES, OOB_STRICT, OOB_EDGE,
+    PARAPHRASE_GROUPS, NOISE_VARIANTS, PARAPHRASE_MIN_RATE, KNOWN_NOISE_FAILURES,
+)
 from eval_judge import format_docs, rel_path, src_match
 
 # 说明：eval_judge.judge_kb = 本文件【第一条 ∧ 第二条】（来源命中 ∧ 关键词覆盖）。
@@ -168,6 +171,73 @@ def test_threshold_sits_in_the_score_gap(ta, raw_scores):
         f"\n  库外题最高分 = {oob_high:.3f}"
         f"\n  库内题最低分 = {kb_low:.3f}"
         f"\n→ 两者应留有间隔，阈值取其中。没有间隔说明该换检索方案而不是调阈值。"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 四·五、行为评测：一致性与鲁棒性
+#   前面的用例测的是"这句话能不能查到"，测不到：
+#     ① 同一问题换个说法，结果会不会漂（一致性）
+#     ② 用户打错字、中英混输、乱加标点还稳不稳（鲁棒性）
+#   这两类才是真实用户在做的。阈值按 2026-10-22 的实测基线留了一档余量：
+#   一致性 11/14 = 79%，鲁棒性 4/5 与基线一致。
+# ---------------------------------------------------------------------------
+def _src_hit(retrieve, question: str, expected) -> bool:
+    docs = retrieve(question)
+    return src_match([rel_path(d.metadata.get("source", "")) for d in docs], expected)
+
+
+@pytest.mark.parametrize("group", PARAPHRASE_GROUPS, ids=[g[0] for g in PARAPHRASE_GROUPS])
+def test_paraphrase_consistency(retrieve, group):
+    """同一问题的多种问法，命中率不应显著下降
+
+    只断命中率不断"每一句都必须中"：换问法天然有波动，要求 100% 会把
+    正常抖动变成红叉。阈值 60% 是防回归用的，不是及格线。
+    """
+    name, expected, questions = group
+    hits = [(q, _src_hit(retrieve, q, expected)) for q in questions]
+    rate = sum(1 for _, ok in hits if ok) / len(hits)
+
+    misses = [q for q, ok in hits if not ok]
+    assert rate >= PARAPHRASE_MIN_RATE, (
+        f"\n【{name}】换问法命中率 {rate:.0%} < {PARAPHRASE_MIN_RATE:.0%}"
+        f"\n没命中的问法：{misses}"
+        f"\n→ 说明检索对措辞敏感：向量没抓住语义，或 BM25 被某些词带偏"
+    )
+
+
+def _noise_params():
+    params = []
+    for item in NOISE_VARIANTS:
+        name, expected, base, noisy, kind = item
+        marks = []
+        if noisy in KNOWN_NOISE_FAILURES:
+            marks.append(pytest.mark.xfail(
+                reason="已知：单字错别字（数→树）会打断语义检索，留作活记录",
+                strict=False,
+            ))
+        params.append(pytest.param(item, marks=marks, id=f"{name}-{kind}"))
+    return params
+
+
+@pytest.mark.parametrize("item", _noise_params())
+def test_robustness_no_worse_than_base(retrieve, item):
+    """加了噪声的问法，结果不能比基线问法差
+
+    基线本来就查不到的问题会 skip：那种情况测的是已知的检索缺口，
+    不是噪声的影响，混在一起会把两种原因算到一笔账上。
+    """
+    name, expected, base, noisy, kind = item
+    if not _src_hit(retrieve, base, expected):
+        pytest.skip(f"【{name}】基线问法本身未命中，无法把差异归因于噪声")
+
+    docs = retrieve(noisy)
+    assert src_match([rel_path(d.metadata.get("source", "")) for d in docs], expected), (
+        f"\n【{name}】噪声（{kind}）让检索变差了"
+        f"\n基线：{base}  ✓"
+        f"\n噪声：{noisy}  ✗"
+        f"\n实际召回：\n{format_docs(docs)}"
+        f"\n→ 用户输入不会总是干净的，这类退化要靠查询纠错或更强的语义模型解决"
     )
 
 
