@@ -428,14 +428,19 @@ from rank_bm25 import BM25Okapi
 # 分词必须过滤标点/停用词：实测一个全角问号「？」的 IDF 高达 4.89，
 # 会让完全不相关的块拿到 4.2 分凭空混进上下文（第 3 轮踩的坑）。
 #
-# 📌 已知待办：_STOPWORDS 只有中文，而语料已经是英文 FastAPI 文档、提问也常是英文
-#    （"What is context engineering?"）—— `is`/`of`/`it`/`how`/`what` 这类英文虚词
-#    会照常进 BM25 打分；也没有 .lower()，`FastAPI` 与 `fastapi` 被当成两个词。
-#    改停用词表会改变 BM25 分数 → L1 分数要重新基线，所以留给"调优"那一轮。
+# 📌 英文虚词已处理（2026-10-22）：翻译出来的查询会带 the/of/how 这类词，
+#    现在和 .lower() 一起归一到同一个词表。改分词**不需要重建向量库**
+#    —— BM25 索引是每次启动在内存里重建的（见下面的 `_bm25 = ...`）。
 _STOPWORDS = {
     "的", "了", "是", "有", "在", "和", "就", "都", "也", "吗", "呢", "啊",
     "什么", "怎么", "怎么样", "为什么", "如何", "哪些", "这个", "那个",
     "我", "你", "他", "她", "它", "这", "那", "一个", "可以", "需要",
+    # 英文虚词：语料与查询都过这里，不滤掉会稀释真实关键词的权重
+    "the", "and", "for", "with", "you", "your", "that", "this", "are", "can",
+    "how", "what", "which", "when", "where", "why", "use", "using", "from",
+    "will", "have", "has", "been", "not", "but", "all", "any", "its", "into",
+    "our", "their", "they", "them", "there", "these", "those", "about", "is",
+    "of", "to", "in", "on", "or", "it", "be", "do", "does", "as", "at", "by",
 }
 _PUNCT_ONLY = re.compile(r"^[\W_]+$", re.UNICODE)
 
@@ -443,12 +448,63 @@ _PUNCT_ONLY = re.compile(r"^[\W_]+$", re.UNICODE)
 # 只会让它打印 "BM25 0.00" 错标，不会报错）。
 BM25_K = 3
 
+# 查询翻译开关（默认关）。
+#   开 = 中文问题先翻成英文关键词，**只喂给 BM25**，向量路仍用原句。
+#   为什么只给 BM25：向量路（bge-m3）跨语言本来就强，换英文 query 反而会改变它的
+#   排序；而 BM25 是纯字面匹配，中文 token 打英文语料命中率接近 0
+#   （实测净贡献只有 1 题）。所以缺的那条腿是 BM25，要补就补它。
+#   为什么不默认开：开了以后每次检索都要调一次模型，pytest 那 109 条就不再
+#   "免费、离线、无 key" 了。默认关，A/B 时显式打开。
+QUERY_TRANSLATION = os.environ.get("QUERY_TRANSLATION", "0") == "1"
+
+_TRANSLATE_PROMPT = ChatPromptTemplate.from_messages([
+    ("system",
+     "You translate Chinese technical questions into English search keywords for the "
+     "FastAPI documentation. Output ONLY English keywords or a short English phrase, "
+     "max 15 words. No explanation, no Chinese, no quotes."),
+    ("human", "{question}"),
+])
+_translator = None
+_trans_cache: dict = {}
+
+
+def _translate_for_bm25(question: str) -> str:
+    """中文问题 → 英文关键词（只给 BM25 用；失败就退回原句）
+
+    失败必须退回而不是抛：翻译是"加分项"，不该让整次检索挂掉。
+    """
+    if not QUERY_TRANSLATION or _PROBLEMS:
+        return question
+    if question in _trans_cache:
+        return _trans_cache[question]
+
+    global _translator
+    try:
+        if _translator is None:
+            # ⚠️ 翻译必须用 temperature=0：复用过对话模型（0.3）时，同一句问法两次
+            # 翻译结果不同（"query parameters" vs "query params declaration"），
+            # 检索结果跟着漂 —— 那就不再是"可复现的检索"，A/B 也没法做。
+            _translator = _TRANSLATE_PROMPT | llm.bind(temperature=0) | StrOutputParser()
+        raw = _translator.invoke({"question": question})
+        # 防御：模型偶尔夹带中文解释。只取英文词，避免把解释也拿去打分
+        words = re.findall(r"[A-Za-z][A-Za-z0-9_.-]{1,}", raw)[:15]
+        result = " ".join(words) or question
+    except Exception:
+        result = question
+    _trans_cache[question] = result
+    return result
+
 
 def _tokenize(text: str):
-    """分词并过滤：丢掉标点、停用词、单字（它们只会制造噪声命中）"""
+    """分词并过滤：丢掉标点、停用词、单字（它们只会制造噪声命中）
+
+    ⚠️ 统一转小写（2026-10-22）：语料里是 `Path` / `Header` / `Cookie`，
+    而翻译出来的查询往往是 `header` / `cookie` —— 不归一化等于两边在不同字典里查。
+    BM25 索引每次启动在内存里重建，所以改分词**不需要重建向量库**，两边同时生效。
+    """
     return [
-        w for w in jieba.cut(text)
-        if len(w.strip()) >= 2 and w not in _STOPWORDS and not _PUNCT_ONLY.match(w)
+        w.lower() for w in jieba.cut(text)
+        if len(w.strip()) >= 2 and w.strip().lower() not in _STOPWORDS and not _PUNCT_ONLY.match(w)
     ]
 
 
@@ -459,13 +515,33 @@ _bm25 = BM25Okapi([_tokenize(d.page_content) for d in _bm25_docs])
 
 
 def bm25_search(question: str, k: int = BM25_K):
-    """关键词检索：query 过滤分词后算 BM25，只留有命中的"""
-    tokens = _tokenize(question)
-    if not tokens:
-        return []                       # 全是标点/停用词 → 直接放弃补召
-    scores = _bm25.get_scores(tokens)
-    order = sorted(range(len(scores)), key=lambda i: -scores[i])[:k]
-    return [(_bm25_docs[i], scores[i]) for i in order if scores[i] > 0]
+    """关键词检索：query 过滤分词后算 BM25，只留有命中的
+
+    query 侧可选加一条英文译文（QUERY_TRANSLATION=1）。注意是**并集不是替换**：
+    两条 query 各打一次分，同一块取较高分再排序。
+    ⚠️ 为什么不能直接用译文替换原句：实测 "FastAPI 怎么读取 Cookie？" 原句能中
+    `cookie-params`（8.30），翻成 "FastAPI read cookies" 后 BM25 反而把
+    `advanced/response-cookies` 顶上来，正确页被挤出唯一位子。替换 = 按下葫芦浮起瓢；
+    并集 = 两条腿各投一票。
+    """
+    queries = [question]
+    translated = _translate_for_bm25(question)
+    if translated != question:
+        queries.append(translated)
+
+    best: dict = {}
+    for q in queries:
+        tokens = _tokenize(q)
+        if not tokens:                  # 全是标点/停用词 → 这条 query 放弃补召
+            continue
+        for i, s in enumerate(_bm25.get_scores(tokens)):
+            if s > best.get(i, 0.0):
+                best[i] = float(s)
+
+    if not best:
+        return []
+    order = sorted(best, key=lambda i: -best[i])[:k]
+    return [(_bm25_docs[i], best[i]) for i in order if best[i] > 0]
 
 # ---------------- 2. API 大模型 ----------------
 # 注：V4.1 Flash 是深度思考模型，默认会把大量 token 花在内部推理上。
@@ -660,6 +736,7 @@ def final_context_docs(question: str, trace: dict | None = None):
     vec_keys = {(d.metadata.get("source"), hash(d.page_content)) for d, _ in kept}
     seen = set(vec_keys)
     bm25_added = []
+    bm25_q = _translate_for_bm25(question)      # 开了翻译就有值，否则等于原句
     for d, s in bm25_search(question, k=BM25_K):                      # 补路：关键词
         key = (d.metadata.get("source"), hash(d.page_content))
         if key not in seen:
@@ -669,6 +746,8 @@ def final_context_docs(question: str, trace: dict | None = None):
 
     if trace is not None:
         trace["gate"] = "未触发 → 向量路有命中，允许 BM25 补召"
+        if bm25_q != question:
+            trace["bm25_query"] = bm25_q        # 只有真翻译过才记，避免噪声字段
         trace["bm25_added"] = bm25_added
         trace["final"] = [
             {**_describe(d, s),

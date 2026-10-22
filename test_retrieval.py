@@ -157,6 +157,21 @@ def test_db_ready_rejects_partial_library(ta, tmp_path):
     assert ta.db_ready(str(empty), 10) is False, "空目录必须拒绝"
 
 
+def test_query_translation_off_by_default(ta):
+    """【回归套件必须保持离线免费】查询翻译默认必须是关的
+
+    开了翻译，每次检索都会多一次模型调用 —— 这 110 条用例会从
+    "本地 embedding、零成本、无 key 可跑" 变成"要联网、要花钱、会限流"。
+    所以默认值本身就是一道防线，这里钉住它。
+    """
+    assert ta.QUERY_TRANSLATION is False, (
+        "QUERY_TRANSLATION 默认被打开了 —— 回归套件会开始调模型。"
+        "要 A/B 请显式设环境变量，别改默认值。"
+    )
+    q = "FastAPI 怎么定义路径参数？"
+    assert ta._translate_for_bm25(q) == q, "翻译关闭时应当原样返回"
+
+
 def test_threshold_sits_in_the_score_gap(ta, raw_scores):
     """【阈值标定失效】阈值必须落在「库内题最低分」和「库外题最高分」之间
 
