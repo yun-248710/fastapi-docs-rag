@@ -96,32 +96,53 @@ def candidates(splits, corpus_counter):
 
 
 def audit_one(q, kws, exp, pages, corpus_counter, verbose=False):
-    key = exp + ".md"
-    page_text = pages.get(key, "")
-    if not page_text:
-        print(f"  ❌ 期望页不存在：{key}")
+    """exp 可以是 str 或 tuple（多个可接受来源）。
+
+    探针判定取"最好的那一页"：只要它在**任一可接受页**里稳定出现，
+    就不是死探针。否则会误报 —— 比如 "APIRouter" 在 reference/apirouter
+    只有 1 块，但在 tutorial/big-applications 里有 8 块。
+    """
+    exps = (exp,) if isinstance(exp, str) else tuple(exp or ())
+    usable = [e for e in exps if pages.get(e + ".md")]
+    if not usable:
+        print(f"  ❌ 期望页不存在：{[e + '.md' for e in exps]}")
         return "DEAD"
 
-    # 用与主脚本一致的参数切块，数「该页一共几块 / 探针落在几块里」
+    key = usable[0] + ".md"
+    page_text = pages[key]
     splits = SPLITTER.split_text(page_text)
     n_chunks = len(splits)
+    all_text = "\n".join(pages[e + ".md"] for e in usable)
 
-    worst, lines = "OK", []
+    worst, lines, levels = "OK", [], []
     order = ["OK", "TOO_GENERIC", "FRAGILE", "DEAD"]
     for kw in kws:
-        hit = sum(1 for c in splits if kw in c)
-        n_page = len(re.findall(re.escape(kw), page_text))
+        hit, host, host_chunks = 0, usable[0], n_chunks
+        for e in usable:
+            sp = SPLITTER.split_text(pages[e + ".md"])
+            n = sum(1 for c in sp if kw in c)
+            if n > hit:
+                hit, host, host_chunks = n, e, len(sp)
+        n_page = len(re.findall(re.escape(kw), all_text))
         n_corpus = len(re.findall(re.escape(kw), "\n".join(pages.values())))
-        lvl, msg = verdict(hit, n_chunks, n_corpus, n_page)
-        lines.append(f"    探针 {kw!r:14} 落在 {hit}/{n_chunks} 块  "
-                     f"(本页 {n_page} 次 / 全库 {n_corpus} 次)   {msg}")
-        if order.index(lvl) > order.index(worst):
-            worst = lvl
+        lvl, msg = verdict(hit, host_chunks, n_corpus, n_page)
+        levels.append(lvl)
+        where = "" if host == usable[0] else f"（在 {host}.md）"
+        lines.append(f"    探针 {kw!r:14} 落在 {hit}/{host_chunks} 块  "
+                     f"(本页 {n_page} 次 / 全库 {n_corpus} 次)   {msg}{where}")
+
+    # 判据是 any()：只要有一个稳探针，这道题就是可用的。
+    # 其余 DEAD/FRAGILE 的探针属于"可删"，不构成死题。
+    if "OK" in levels:
+        worst = "OK"
+    else:
+        worst = max(levels, key=order.index)
 
     if verbose or worst != "OK":
         print("-" * 78)
         print(f"  [{worst}] {q}")
-        print(f"    期望页：{key}（{len(page_text)} 字符 → {n_chunks} 块）")
+        print(f"    期望页：{key}（{len(page_text)} 字符 → {n_chunks} 块）"
+              + ("" if len(usable) == 1 else f"　可接受：{usable}"))
         for ln in lines:
             print(ln)
         print("    ── 候选探针（落在多个块里、且不太泛，按稳定性排序）──")

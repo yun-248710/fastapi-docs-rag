@@ -20,15 +20,24 @@ ta = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ta)
 
 # 评测集定义与判据都抽出去了 —— 跑分脚本和 pytest 套件共用同一份
-from eval_cases import CASES, TOTAL
-from eval_judge import judge_kb, judge_oob
+from eval_cases import CASES, TOTAL, case_category, CATEGORY_LABELS
+from eval_judge import judge_kb, judge_oob, rel_path, src_match
 
 
 def l1_retrieval(kind, q, l1_kws, expected):
-    """第一级：只测检索层，不调模型。返回 (是否通过, 召回条数, 失败原因)"""
+    """第一级：只测检索层，不调模型。
+
+    返回 (是否通过, 召回条数, 失败原因, 来源是否命中)。
+    来源是否命中要单独返回：L1 是「来源 ∧ 探针」的复合判据，
+    只看 L1 会把"检索修好了"这件事藏起来。
+    """
     docs = ta.final_context_docs(q)
-    ok, why = judge_oob(docs) if kind == "oob" else judge_kb(docs, l1_kws, expected)
-    return ok, len(docs), why
+    if kind == "oob":
+        ok, why = judge_oob(docs)
+        return ok, len(docs), why, ok
+    ok, why = judge_kb(docs, l1_kws, expected)
+    srcs = [rel_path(d.metadata.get("source", "")) for d in docs]
+    return ok, len(docs), why, src_match(srcs, expected)
 
 
 def l2_answer_ok(q, l2_kws) -> bool:
@@ -48,10 +57,19 @@ if __name__ == "__main__":
     l1_fail_src_only = 0
     l2_kw_all = 0
     fails = []
+    # 分层统计：只有一个总数会掩盖"哪一层不行"
+    by_cat = {}
 
-    for kind, q, l1_kws, l2_kws, expected in CASES:
-        l1, n_docs, why = l1_retrieval(kind, q, l1_kws, expected)
-        # ⚠️ 单题独立 try：踩过的坑 —— 一次 429 把整批 29 题打断，前面全白跑。
+    for case in CASES:
+        kind, q, l1_kws, l2_kws, expected = case
+        l1, n_docs, why, src_ok = l1_retrieval(kind, q, l1_kws, expected)
+        cat = case_category(case)
+        row = by_cat.setdefault(cat, {"n": 0, "src": 0, "l1": 0})
+        row["n"] += 1
+        row["src"] += bool(src_ok)
+        row["l1"] += bool(l1)
+
+        # ⚠️ 单题独立 try：踩过的坑 —— 一次 429 把整批题打断，前面全白跑。
         try:
             l2 = l2_answer_ok(q, l2_kws)
             err = ""
@@ -69,14 +87,14 @@ if __name__ == "__main__":
         detail = f"（{why}）" if why else ""
         extra = f"（召回 {n_docs} 块）" if kind == "oob" else ""
         print(f"[{mark}] L1:{'PASS' if l1 else 'FAIL'}{detail}  "
-              f"L2:{'PASS' if l2 else 'FAIL'}  [{kind}] {q}{extra}")
+              f"L2:{'PASS' if l2 else 'FAIL'}  [{cat}] {q}{extra}")
         if not l1:
-            fails.append((q, why, n_docs))
+            fails.append((q, why, n_docs, cat))
 
     print("-" * 70)
     print(f"检索命中  {l1_pass}/{TOTAL}")
     if l2_errors and len(l2_errors) == TOTAL:
-        # 全部异常时绝不能打印 0/29 —— 那会被误读成"模型答得烂"
+        # 全部异常时绝不能打印 0 分 —— 那会被误读成"模型答得烂"
         print(f"回答通过  —/{TOTAL}（全部调用异常，无有效结果）")
     elif l2_errors:
         print(f"回答通过  {l2_pass}/{TOTAL - len(l2_errors)}"
@@ -86,6 +104,18 @@ if __name__ == "__main__":
     if l2_errors:
         print(f"⚠️ 调用异常  {len(l2_errors)}/{TOTAL} 题（结果不完整，先修调用再谈分数）")
     print(f"其中「来源对、关键词没覆盖」：{l2_kw_all} 条")
+    print("-" * 70)
+
+    # 分层报告：一个总数会掩盖"哪一层不行"
+    print("分层结果（L1 = 来源 ∧ 探针；来源列更接近检索真实水位）")
+    print(f"  {'层':<10}{'题数':>5}{'来源命中':>10}{'L1':>10}")
+    order = ["tutorial", "advanced", "reference", "how-to", "deployment", "async", "python-types", "oob"]
+    for cat in order:
+        if cat not in by_cat:
+            continue
+        r = by_cat[cat]
+        label = CATEGORY_LABELS.get(cat, cat)
+        print(f"  {label:<10}{r['n']:>5}{r['src']:>7}/{r['n']:<3}{r['l1']:>6}/{r['n']}")
     print("-" * 70)
 
     if l2_errors:
@@ -99,8 +129,8 @@ if __name__ == "__main__":
 
     if fails:
         print("L1 失败清单：")
-        for q, why, n in fails:
-            print(f"  · [{why}] 召回{n}块  {q}")
+        for q, why, n, cat in fails:
+            print(f"  · [{cat}/{why}] 召回{n}块  {q}")
     print("=" * 70)
     print("判读：L1 FAIL + L2 PASS = 模型在兜底（检索层有问题）")
     print("      L1 PASS + L2 FAIL = 资料给了没用上（生成层有问题）")

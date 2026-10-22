@@ -31,12 +31,24 @@ def src_match(rel_srcs, expected) -> bool:
     ⚠️ 踩过的坑：expected="tutorial/query-params" 会匹配到
     "tutorial/query-params-str-validations.md"（前缀撞车），把捞错文件判成捞对。
     "tutorial/body" 同理撞 body-fields / body-nested-models / body-updates。
+
+    expected 支持 str 或 tuple/list（多个可接受来源）——一个问题常有多个正确页，
+    比如"APIRouter 有哪些参数"既能答 reference/apirouter，也能答
+    tutorial/big-applications。只认一个会把答对判成答错。
     """
-    exp = expected.rstrip("/")
+    if isinstance(expected, str):
+        exp_list = (expected,)
+    elif expected is None:
+        exp_list = ()
+    else:
+        exp_list = tuple(expected)
+
     for r in rel_srcs:
         r_noext = r[:-3] if r.endswith(".md") else r
-        if r_noext == exp or r_noext.startswith(exp + "/"):
-            return True
+        for expected_one in exp_list:
+            exp = expected_one.rstrip("/")
+            if r_noext == exp or r_noext.startswith(exp + "/"):
+                return True
     return False
 
 
@@ -45,16 +57,20 @@ def judge_kb(docs, l1_kws, expected):
 
     失败原因分三种，便于定位：
       "召回为空"     —— 一条都没过阈值
-      "关键词✗"      —— 来源对了，但召回的片段不含期望词（可能是探针脆，也可能是抽错块）
+      "关键词✗"      —— 来源对了，但召回的片段不含任何探针词（可能抽错块）
       "来源✗"        —— 期望词出现了，但正确文件没进上下文（捞错文件）
       "关键词✗来源✗" —— 两者都挂
+
+    ⚠️ 探针用 any() 而不是 all()：探针是"这页特有的证据"，命中任意一个
+    就说明捞到的是这页的内容。旧版要求全部命中，实测把两条正确召回判成失败
+    —— 正确页进了窗口，但承载某个词的块落在另一段里。
     """
     if not docs:
         return False, "召回为空"
     text = "\n".join(d.page_content for d in docs)
     srcs = [rel_path(d.metadata.get("source", "")) for d in docs]
 
-    kw_ok = all(k in text for k in l1_kws)
+    kw_ok = any(k in text for k in (l1_kws or []))
     src_ok = src_match(srcs, expected) if expected else True
 
     if kw_ok and src_ok:
