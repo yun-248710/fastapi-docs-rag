@@ -31,16 +31,18 @@
 !/pytest.ini
 !/test_retrieval.py
 
-# ---- 评测证据：只留 3 份，各自支撑 README 里的一条结论 ----
+# ---- 评测证据：4 份，各自支撑 README 里的一条结论 ----
 # ⚠️ 注意：.gitignore 不支持行尾注释 —— 规则后面写 "# xxx" 会让整行变成一个匹配不到的模式。
 #    注释必须单独成行（这个坑本项目踩过一次）。
 #
-# nomic 768 维基线 → L1 5/29（来源命中 2/24）
+# nomic 768 维基线 → L1 5/29（旧题集）
 !/eval_fastapi_baseline.txt
-# 换 bge-m3 后 → L1 20/29（来源命中 18/24）
+# 换 bge-m3 后 → L1 20/29（旧题集）
 !/eval_bgem3_runA.txt
-# 最终配置 → L1 23/29（来源命中 21/24）
+# 旧题集最终配置 → L1 23/29（来源命中 21/24）
 !/eval_glm_newruler.txt
+# 新 50 题集（2026-10-22 重挑）→ L1 45/50、L2 50/50
+!/eval_glm_50set.txt
 #
 # 原先还跟踪了 eval_bm25_gate.txt，用来证明"闸门必要"。但那份日志是**旧语料（AI Agent 书）**
 # 跑出来的（满篇 chapter10.md / 多 Agent 协作），放在 FastAPI 仓库里只会误导人 ——
