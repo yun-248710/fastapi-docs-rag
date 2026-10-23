@@ -157,6 +157,33 @@ def test_db_ready_rejects_partial_library(ta, tmp_path):
     assert ta.db_ready(str(empty), 10) is False, "空目录必须拒绝"
 
 
+def test_l2_terms_do_not_leak_from_question():
+    """【判据不能抄题】L2 期望词不得出现在题面里
+
+    2026-10-23 发现的问题：45 道库内题里，**42 道（93%）的 L2 期望词就写在问题里**
+    ——「怎么给查询参数加长度和正则校验？」的期望词是 `长度/正则/校验`。
+    于是 L2 退化成「会不会复述问题」，50/50 这个数测不出任何东西。
+
+    现在 L2 全部换成「答案里才会出现」的 API 符号（`item_id` / `response_model` /
+    `exclude_unset`…），这条测试防止有人再把题面词写回去。
+    这是一条**结构性防线**：只要它绿着，L2 就不可能靠复述通过。
+    """
+    leaks = []
+    for _, q, _, l2, _ in KB_CASES:
+        hit = [k for k in l2 if k.lower() in q.lower()]
+        if hit:
+            leaks.append((q, hit))
+
+    assert not leaks, (
+        "\n以下题目的 L2 期望词出现在题面里（判据泄题，指标会退化成复述检测）：\n"
+        + "\n".join(f"  · {q}  →  {h}" for q, h in leaks)
+        + "\n→ 换成「答案里才会出现」的词（API 符号 / 参数名 / 结论），别再抄题面"
+    )
+    # 顺带禁止空判据：空列表会让 any() 永远为 False，题目变成永远 FAIL
+    empty = [q for _, q, _, l2, _ in KB_CASES if not l2]
+    assert not empty, f"这些题没有 L2 期望词：{empty}"
+
+
 def test_regression_suite_forces_translation_off(ta):
     """【回归套件必须保持离线免费】conftest 必须把查询翻译压成关闭
 

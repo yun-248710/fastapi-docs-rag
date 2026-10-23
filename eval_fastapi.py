@@ -21,29 +21,69 @@ spec.loader.exec_module(ta)
 
 # 评测集定义与判据都抽出去了 —— 跑分脚本和 pytest 套件共用同一份
 from eval_cases import CASES, TOTAL, case_category, CATEGORY_LABELS
-from eval_judge import judge_kb, judge_oob, rel_path, src_match
+from eval_judge import (
+    judge_kb, judge_oob, rel_path, src_match, JUDGE_SYSTEM, JUDGE_HUMAN,
+)
 
 
 def l1_retrieval(kind, q, l1_kws, expected):
     """第一级：只测检索层，不调模型。
 
-    返回 (是否通过, 召回条数, 失败原因, 来源是否命中)。
+    返回 (是否通过, 召回条数, 失败原因, 来源是否命中, 上下文)。
     来源是否命中要单独返回：L1 是「来源 ∧ 探针」的复合判据，
     只看 L1 会把"检索修好了"这件事藏起来。
     """
     docs = ta.final_context_docs(q)
     if kind == "oob":
         ok, why = judge_oob(docs)
-        return ok, len(docs), why, ok
+        return ok, len(docs), why, ok, docs
     ok, why = judge_kb(docs, l1_kws, expected)
     srcs = [rel_path(d.metadata.get("source", "")) for d in docs]
-    return ok, len(docs), why, src_match(srcs, expected)
+    return ok, len(docs), why, src_match(srcs, expected), docs
 
 
-def l2_answer_ok(q, l2_kws) -> bool:
-    """第二级：测最终回答。期望词【任一】命中即通过（答案可能与语料不同语言）"""
-    ans = ta.ask(q).lower()
-    return any(k.lower() in ans for k in l2_kws)
+# ---- L2b：语义裁判（只在关键词判负时调用，每次一条模型调用）----
+_judge_chain = None
+
+
+def judge_answer(question: str, answer: str, docs) -> bool:
+    """关键词判负后复核：答案是否真的答对了。
+
+    ⚠️ 裁判失败（限流/超时）一律判负 —— 宁可少给分，也不要"因为裁判挂了所以算过"。
+    """
+    global _judge_chain
+    if _judge_chain is None:
+        from langchain_core.output_parsers import StrOutputParser
+        from langchain_core.prompts import ChatPromptTemplate
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", JUDGE_SYSTEM),
+            ("human", JUDGE_HUMAN),
+        ])
+        _judge_chain = prompt | ta.llm.bind(temperature=0) | StrOutputParser()
+
+    context = "\n\n".join(d.page_content for d in docs)[:4000] or "（无召回内容）"
+    try:
+        out = _judge_chain.invoke(
+            {"question": question, "context": context, "answer": answer}
+        ).strip().upper()
+        return out.startswith("PASS")
+    except Exception:
+        return False
+
+
+def l2_eval(q, l2_kws, docs):
+    """第二级：测最终回答。
+
+    返回 (关键词是否命中, 最终是否通过)。
+    关键词做快速过滤：命中即通过（免费、确定性）；没命中才调裁判复核，
+    因为关键词只能测"有没有写出某个符号"，测不了"解释对不对"。
+    """
+    ans = ta.ask(q)
+    kw_ok = any(k.lower() in ans.lower() for k in l2_kws)
+    if kw_ok:
+        return True, True
+    return False, judge_answer(q, ans, docs)
 
 
 if __name__ == "__main__":
@@ -52,7 +92,8 @@ if __name__ == "__main__":
     print(f"当前生成模型：{ta.MODEL_ID}")
     print("=" * 70)
 
-    l1_pass = l2_pass = 0
+    l1_pass = l2_pass = l2_kw_pass = 0
+    judge_calls = judge_flips = 0
     l2_errors = []              # 单题异常（429 限流 / 超时等），不能让整批崩掉
     l1_fail_src_only = 0
     l2_kw_all = 0
@@ -62,7 +103,7 @@ if __name__ == "__main__":
 
     for case in CASES:
         kind, q, l1_kws, l2_kws, expected = case
-        l1, n_docs, why, src_ok = l1_retrieval(kind, q, l1_kws, expected)
+        l1, n_docs, why, src_ok, docs = l1_retrieval(kind, q, l1_kws, expected)
         cat = case_category(case)
         row = by_cat.setdefault(cat, {"n": 0, "src": 0, "l1": 0})
         row["n"] += 1
@@ -71,11 +112,17 @@ if __name__ == "__main__":
 
         # ⚠️ 单题独立 try：踩过的坑 —— 一次 429 把整批题打断，前面全白跑。
         try:
-            l2 = l2_answer_ok(q, l2_kws)
+            kw_ok, l2 = l2_eval(q, l2_kws, docs)
             err = ""
         except Exception as e:
-            l2, err = False, f"{type(e).__name__}: {str(e)[:70]}"
+            kw_ok, l2 = False, False
+            err = f"{type(e).__name__}: {str(e)[:70]}"
             l2_errors.append((q, err))
+
+        l2_kw_pass += kw_ok
+        if not kw_ok and err == "":
+            judge_calls += 1
+            judge_flips += bool(l2)
         l1_pass += l1
         l2_pass += l2
         if not l1 and why == "来源✗":
@@ -85,9 +132,10 @@ if __name__ == "__main__":
 
         mark = "ERR" if err else ("OK " if (l1 and l2) else ("WARN" if l2 else "FAIL"))
         detail = f"（{why}）" if why else ""
+        l2_note = "（裁判改判）" if (not kw_ok and l2) else ""
         extra = f"（召回 {n_docs} 块）" if kind == "oob" else ""
         print(f"[{mark}] L1:{'PASS' if l1 else 'FAIL'}{detail}  "
-              f"L2:{'PASS' if l2 else 'FAIL'}  [{cat}] {q}{extra}")
+              f"L2:{'PASS' if l2 else 'FAIL'}{l2_note}  [{cat}] {q}{extra}")
         if not l1:
             fails.append((q, why, n_docs, cat))
 
@@ -96,11 +144,10 @@ if __name__ == "__main__":
     if l2_errors and len(l2_errors) == TOTAL:
         # 全部异常时绝不能打印 0 分 —— 那会被误读成"模型答得烂"
         print(f"回答通过  —/{TOTAL}（全部调用异常，无有效结果）")
-    elif l2_errors:
-        print(f"回答通过  {l2_pass}/{TOTAL - len(l2_errors)}"
-              f"（有效题数；另有 {len(l2_errors)} 题调用异常，未计入）")
     else:
-        print(f"回答通过  {l2_pass}/{TOTAL}")
+        valid = TOTAL - len(l2_errors)
+        print(f"回答通过（关键词） {l2_kw_pass}/{valid}   ← 只认'答案里写没写那个符号'")
+        print(f"回答通过（+裁判）   {l2_pass}/{valid}   ← 裁判复核 {judge_calls} 条，改判通过 {judge_flips} 条")
     if l2_errors:
         print(f"⚠️ 调用异常  {len(l2_errors)}/{TOTAL} 题（结果不完整，先修调用再谈分数）")
     print(f"其中「来源对、关键词没覆盖」：{l2_kw_all} 条")
