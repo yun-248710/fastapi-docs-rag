@@ -55,7 +55,7 @@ python 14-ai_agent_assistant.py --test "FastAPI 怎么配置跨域 CORS？"
 | **正确文档进检索窗口**（旧 24 题集） | **2/24 → 21/24（8% → 87.5%）** | ★ 最硬的指标：**与阈值解耦**，纯排名质量 |
 | 检索命中（L1，新 50 题集） | **47 / 50** | 来源 ∧ 探针（任一命中）；含 5 道库外拒答题 |
 | 回答通过（L2，新 50 题集） | **46/50（关键词）→ 50/50（+裁判）** | 关键词只做过滤，判负的交语义裁判复核 |
-| 回归测试 | **113 用例** / 约 45 秒 | 默认**不调大模型**，只需本地 Ollama，**不需要 API Key**；其中 5 条零依赖，CI 里必跑 |
+| 回归测试 | **114 用例** / 1 分钟内 | 默认**不调大模型**，只需本地 Ollama，**不需要 API Key**；其中 6 条零依赖，CI 里必跑 |
 
 > ⚠️ **换过评测集，分数不可直接对比。** 旧的 `23/29` 和新的 `47/50` 不是同一把尺子：
 > 旧 24 道库内题**全在 tutorial**，新 50 题按「基础 25 / 进阶 6 / API 签名 4 / 迁移配置 4 /
@@ -350,7 +350,7 @@ python 14-ai_agent_assistant.py --test "FastAPI 怎么配置跨域 CORS？"
   **中断整个 session**，而不是让一条用例失败。现在 `check_runtime()` 只报告问题，
   脚本入口自己 `sys.exit(1)`，测试自己 skip。
 - **没有 Ollama 时整场 skip，不是整场红**。embedding 全靠本地 Ollama，它没起来时
-  113 条用例会全变成 `ConnectionError`——那是环境没准备好，不是代码有问题。
+  114 条用例会全变成 `ConnectionError`——那是环境没准备好，不是代码有问题。
   现在会提示「Ollama 未启动」，pytest 退出码仍是 0，CI 不会误报。
 
 > ⚠️ 已知边界：这是**进程内单例**。`uvicorn --workers 4` 时每个进程各建一份，内存 ×N。
@@ -442,8 +442,8 @@ python retrieval_trace.py "今天天气怎么样？" "FastAPI 怎么配置跨域
 **跑回归测试**（不调大模型，**不需要 API Key**）：
 
 ```bash
-pytest                                  # 全部 113 条，约 45 秒（需要本地 Ollama）
-pytest -m "not needs_index"             # 只要零依赖的 5 条元测试，约 20 秒（不需要 Ollama）
+pytest                                  # 全部 114 条，40~60 秒（需要本地 Ollama）
+pytest -m "not needs_index"             # 只要零依赖的 6 条元测试，20 秒级（不需要 Ollama）
 pytest -m llm                           # 附带要调大模型的用例（要 ARK_API_KEY，会花额度）
 ```
 
@@ -464,8 +464,8 @@ python eval_fastapi.py
 
 | job | 触发 | 内容 | 耗时 |
 |---|---|---|---|
-| `unit` | 每次 push / PR | 语法检查 + **5 条零依赖元测试** | 约 1 分钟 |
-| `retrieval` | 手动 `workflow_dispatch` | 装 Ollama + 拉 bge-m3 + 拉语料 + 建库 + 全量 113 条 | 约 8 分钟 |
+| `unit` | 每次 push / PR | 语法检查 + **6 条零依赖元测试** | 1 分钟内 |
+| `retrieval` | 手动 `workflow_dispatch` | 装 Ollama + 拉 bge-m3 + 拉语料 + 建库 + 全量 0 条 | 8 分钟量级 |
 
 **为什么不把完整检索放进 push 流程**：`bge-m3` 有 1.2 GB，每次 push 都下载会拖死 CI，
 而且模型下载慢导致的超时比代码出错还常见 —— 那种红没有信息量。
@@ -487,19 +487,24 @@ python eval_fastapi.py
 ## 项目结构
 
 ```
-14-ai_agent_assistant.py   主程序：建库 → 检索 → 生成（单文件，约 1080 行，含大量决策注释）
+14-ai_agent_assistant.py   主程序：建库 → 检索 → 生成（单文件，千行级；注释与文档字符串合计约 45%，真正的代码不到四成）
 eval_cases.py              评测集（50 题，7 行分层展示 / 代码里 8 个分类；含 L1 探针词 / L2 期望词 / 可接受来源）
 eval_judge.py              判据（跑分脚本与测试套件共用，避免两处维护漂移）
 eval_fastapi.py            跑分脚本（输出 L1 / L2 + 失败归因）
 audit_probes.py            探针体检器：检查每个 L1 探针词是否「本页高频、全库低频」
 retrieval_trace.py         可观测性：把检索决策路径结构化落盘 + 渲染
 conftest.py / pytest.ini   测试夹具与配置
-test_retrieval.py          回归测试套件（113 用例，含 8 条元测试 + 10 条行为评测）
+test_retrieval.py          回归测试套件（114 用例，含 9 条元测试 + 10 条行为评测）
 requirements.txt           依赖（全部锁版本，实测通过）
 .env.example               配置模板（真实 .env 不入库）
 .github/workflows/tests.yml  CI：unit（零依赖，每次 push）+ retrieval（手动触发）
 LICENSE                    MIT
 ```
+
+**为什么这里不写「主程序约 XXX 行」**：行数是**最容易立刻过期**的一类数字 ——
+改一次代码就对不上，而它并不代表能力。同理耗时也只给量级。
+留在 README 里的数字都应该是「改动它就说明有实质进展」的那种
+（块数 1919、L1 47/50、用例数 113），其余一律模糊表述。
 
 **为什么评测集和判据要抽成独立模块**：跑分脚本和 pytest 套件必须用**同一份**定义，
 否则会出现"测试过了但跑分不过"这类最难查的不一致。

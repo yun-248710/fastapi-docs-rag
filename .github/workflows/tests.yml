@@ -55,7 +55,7 @@ jobs:
       - name: 零依赖用例（判据不泄题 / 库名带模型 / import 无副作用 / 前置检查）
         run: pytest -m "not llm and not needs_index" --tb=short -p no:warnings
 
-      - name: 确认真的跑了 5 条（防止被 skip 成假绿）
+      - name: 确认真的跑了 6 条（防止被 skip 成假绿）
         run: |
           # ⚠️ 两个坑都踩过：
           #   1) 不能直接 tail -1 —— 有 warning 时最后一行是 "-- Docs: ..."，
@@ -64,8 +64,8 @@ jobs:
           #      叠加成 -qq 会连汇总行都不打印，grep 拿到空字符串。
           out=$(pytest -m "not llm and not needs_index" -p no:warnings | grep -E "passed|failed" | tail -1)
           echo "summary: $out"
-          echo "$out" | grep -q "5 passed" || {
-            echo "::error::预期 5 条通过，实际：$out"
+          echo "$out" | grep -q "6 passed" || {
+            echo "::error::预期 6 条通过，实际：$out"
             exit 1
           }
 

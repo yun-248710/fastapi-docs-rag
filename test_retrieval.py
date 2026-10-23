@@ -289,6 +289,38 @@ def test_check_runtime_reports_missing_docs(ta, monkeypatch, tmp_path):
     )
 
 
+def test_readme_claim_about_comment_ratio_holds(ta):
+    """【文档与代码一致】README 说「注释+文档字符串约 45%」，代码必须真的如此
+
+    起因：外部审查三次指出 README 里的代码行数过期（860 → 1080 → 1113）。
+    根因是这类数字**改代码就过期**，所以 README 已改成模糊表述；
+    但既然还留了一个比例数字，就得有人守着 —— 这条就是那道防线。
+
+    如果将来有人重构时把注释删掉一半，这条会失败，
+    提醒同步 README 的说法（而不是让 README 悄悄变成假话）。
+    """
+    src = Path(ta.__file__).read_text(encoding="utf-8").splitlines()
+    total = len(src)
+    comment = sum(1 for l in src if l.strip().startswith("#"))
+
+    in_doc = False
+    doc = 0
+    for l in src:
+        s = l.strip()
+        if s.startswith(('"""', 'r"""')):
+            in_doc = not in_doc
+            continue
+        if in_doc and s and not s.startswith("#"):
+            doc += 1
+
+    ratio = (comment + doc) / total
+    assert 0.35 <= ratio <= 0.55, (
+        f"\n注释与文档字符串占比 {ratio:.0%}，已不在 README 承诺的 35%~55% 区间"
+        f"\n  # 注释 {comment} 行 / docstring {doc} 行 / 总行 {total}"
+        f"\n→ 同步修改 README 项目结构里那一句，别让文档变成假话"
+    )
+
+
 # ---------------------------------------------------------------------------
 # 四·五、行为评测：一致性与鲁棒性
 #   前面的用例测的是"这句话能不能查到"，测不到：
