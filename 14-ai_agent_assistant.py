@@ -152,26 +152,47 @@ CHUNK_FORMAT_VERSION = 2
 
 
 
-def docs_fingerprint(directory: str) -> str:
-    """用「文件名 + 修改时间 + 排除清单」算目录的内容指纹
+def _index_files(directory: str):
+    """列出**真正会进库**的文件（相对路径，统一 / 分隔）。
 
-    📌 只算**真正进库**的文件，并把 EXCLUDE_DOCS 本身也算进去：
-      · 不进库的文件（比如 changelog）改一下不该触发重建；
-      · 但**改了排除清单 = 换了一套索引内容**，必须换库，否则会拿旧库当新库用。
-
-    ⚠️ 两个已知边界（2026-09-23 审查记录，这里仍未改，因为改动会触发全库重建）：
-      ① 覆盖目录下**所有**文件，包括不参与索引的 png/svg —— 动一张图也会重建全库；
-      ② 基于 mtime：`cp -p` / `rsync -t` 这类保留 mtime 的编辑，改了内容但指纹不变
-         → 幽灵文档仍会复活。
-      真正兜底的是 db_ready() 的「预期块数」校验：内容变了，块数几乎必然跟着变。
+    指纹和建库共用这一份口径：只算 SUPPORTED_EXTS、且不在 EXCLUDE_DOCS 里的文件。
+    原来指纹用 os.walk 遍历全部文件（403 个里 248 张图），动一张 png 就触发全库重建。
     """
-    h = hashlib.md5()
-    for root, _, files in sorted(os.walk(directory)):
+    out = []
+    for root, _, files in os.walk(directory):
         for fn in sorted(files):
             if fn in EXCLUDE_DOCS:          # 不进库的文件不参与指纹
                 continue
-            h.update(fn.encode("utf-8"))
-            h.update(str(os.path.getmtime(os.path.join(root, fn))).encode())
+            if os.path.splitext(fn)[1].lower() not in SUPPORTED_EXTS:
+                continue
+            out.append(os.path.relpath(os.path.join(root, fn), directory).replace("\\", "/"))
+    return sorted(out)
+
+
+def docs_fingerprint(directory: str) -> str:
+    """用「相对路径 + 文件内容哈希 + 排除清单」算语料指纹。
+
+    📌 只算**真正进库**的文件，并把 EXCLUDE_DOCS 本身也算进去：
+      · 不进库的文件（changelog、png）改一下不该触发重建；
+      · 但**改了排除清单 = 换了一套索引内容**，必须换库。
+
+    ⚠️ 为什么不再用 mtime（2026-10-23 改，原方案见 git 历史）：
+      ① **换机器必失效**：解包/拷贝会改 mtime，指纹一变库名就对不上，
+         随包带的向量库永远用不上 —— 每次解压都要白等 1~2 分钟重建。
+      ② **保留 mtime 时反而危险**：`cp -p` / `rsync -t` / 备份还原会保留 mtime，
+         内容改了指纹却不变 → 旧库继续用，幽灵文档复活，新内容永远进不了库。
+      ③ 用**相对路径**而不是 basename：语料里有 14 组同名文件（index.md 就有 14 个），
+         跨目录互换内容时 basename 看不出来。
+
+    代价：要读一遍全部语料（154 篇 md，实测 29 ms；mtime 版 12 ms），
+    相对建库的 1.8 分钟可忽略。
+    """
+    h = hashlib.md5()
+    for rel in _index_files(directory):
+        h.update(rel.encode("utf-8"))
+        h.update(b"\x00")                       # 分隔符，防止 ab+c 与 a+bc 撞
+        with open(os.path.join(directory, rel), "rb") as fh:
+            h.update(hashlib.md5(fh.read()).digest())
     h.update(("|".join(sorted(EXCLUDE_DOCS))).encode("utf-8"))
     h.update(f"chunk-v{CHUNK_FORMAT_VERSION}".encode("utf-8"))
     return h.hexdigest()[:8]
