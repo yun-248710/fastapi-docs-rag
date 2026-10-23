@@ -16,6 +16,10 @@
 !/README.md
 !/requirements.txt
 !/LICENSE
+
+# ---- README 里引用的图（真实运行输出渲染而成）----
+!/assets/
+!/assets/terminal.png
 !/.env.example
 
 # ---- CI ----
