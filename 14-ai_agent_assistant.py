@@ -96,11 +96,17 @@ def _require_config() -> None:
 
     → 所以：import 只读取配置，缺了就用占位值把客户端构造出来；
       真正调模型的地方再当场炸，且一次列全所有缺失项。
+
+    ⚠️ 抛 RuntimeError 而不是 SystemExit（2026-10-23 改）：
+      `SystemExit` 是给解释器的信号，在 pytest 里会**中断整个 session**，
+      而不是让一条用例 fail —— 这正是本文件 check_runtime() 批评过的做法。
+      库代码只报告"跑不了"，退不退出由入口决定：__main__ 捕获后 sys.exit(1)，
+      测试自然显示为一条 failed。
     """
     if _PROBLEMS:
-        raise SystemExit(
+        raise RuntimeError(
             "缺少配置：" + "、".join(_PROBLEMS) + "\n"
-            "请在 ic_demo/.env 里补齐（模板见 .env.example）：\n"
+            "请在**项目根目录**的 .env 里补齐（模板见 .env.example）：\n"
             "  ARK_API_KEY=ark-...\n"
             "  ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3\n"
             "  ARK_MODEL=<控制台「开通管理」里的 Model ID>\n"
@@ -209,25 +215,40 @@ def docs_fingerprint(directory: str) -> str:
 # 📌 切分参数（chunk_size / overlap / separators）**故意不进库名**：
 #    它们由「预期块数」兜住了 —— 改了它们，build_splits() 的块数就变，
 #    db_ready() 立刻判定库不完整并重建。少一个要手工同步的命名维度。
-DB_DIR = f"{DB_DIR_BASE}_{EMBED_MODEL.replace(':', '-')}_{docs_fingerprint(docs_dir)}"
+#
+# ⚠️ 这里**不能写成模块级常量**（2026-10-23 改）：算指纹要遍历 154 篇语料（实测 29 ms），
+#    写在模块级就等于 import 时碰语料 —— 与"import 不读语料"的承诺冲突。
+#    29 ms 本身无所谓，但**注释说不碰、实际碰了**，是面试官对着代码一眼能抓到的矛盾。
+#    改成函数 + 缓存：第一次真要用库路径时才计算，之后命中缓存。
+_DB_DIR_CACHE: dict = {}
 
 
-def db_dir_for_chroma(path: str = DB_DIR) -> str:
+def db_dir() -> str:
+    """库目录名（惰性计算，只算一次）。"""
+    if "path" not in _DB_DIR_CACHE:
+        _DB_DIR_CACHE["path"] = (
+            f"{DB_DIR_BASE}_{EMBED_MODEL.replace(':', '-')}_{docs_fingerprint(docs_dir)}"
+        )
+    return _DB_DIR_CACHE["path"]
+
+
+def db_dir_for_chroma(path: str | None = None) -> str:
     """把库目录转成「相对当前工作目录」的形式再交给 chromadb。
 
     ⚠️ 踩过的坑（2026-09-23 本机实测，chromadb 1.5.9）：它的 Rust 层读不了
     **含非 ASCII 字符的绝对路径**。同一个库（本机用户名是中文，路径必然带中文），
     三种传法结果完全不同：
 
-        "C:\\Users\\黄计云\\Desktop\\ic_demo\\chroma_db_x"   → InternalError:
-                                                              Error loading hnsw index
-        "./chroma_db_x"（cwd 就在中文目录下）                 → OK
-        "ic_demo/chroma_db_x"（跨一层目录的相对路径）          → OK
+        "<中文路径>/chroma_db_x"（绝对路径）        → InternalError:
+                                                      Error loading hnsw index
+        "./chroma_db_x"（cwd 就在中文目录下）        → OK
+        "<repo>/chroma_db_x"（跨一层目录的相对路径）  → OK
 
     所以问题出在"绝对路径"这个形式上，不在字符本身 —— 相对路径（即使解析后含中文）
     一切正常。这里统一转成相对形式；只有库和 cwd 跨盘符时 relpath 无解，
     才退回绝对路径并明确警告。
     """
+    path = path or db_dir()
     try:
         return os.path.relpath(path)
     except ValueError:
@@ -489,6 +510,9 @@ _TRANSLATE_PROMPT = ChatPromptTemplate.from_messages([
 ])
 _translator = None
 _trans_cache: dict = {}
+# ⚠️ 上限：这个缓存按问题存译文，长跑进程会无限增长。512 条足够一轮评测复用，
+#    超了就整轮清空 —— 简单，但不会让内存只涨不落。
+_TRANS_CACHE_MAX = 512
 
 
 def _translate_for_bm25(question: str) -> str:
@@ -514,6 +538,8 @@ def _translate_for_bm25(question: str) -> str:
         result = " ".join(words) or question
     except Exception:
         result = question
+    if len(_trans_cache) >= _TRANS_CACHE_MAX:
+        _trans_cache.clear()
     _trans_cache[question] = result
     return result
 
@@ -595,10 +621,11 @@ def _ensure_index():
             )
 
         splits = build_splits()
-        if not db_ready(DB_DIR, len(splits)):
+        path = db_dir()                     # 惰性：第一次真要用库时才算指纹
+        if not db_ready(path, len(splits)):
             print(f"【首次运行 / 库不完整】正在构建知识库向量库……（{len(splits)} 块）")
             # 必须在打开库句柄**之前**挪走旧库（半截库、或切分参数变过留下的旧库）
-            _retire(DB_DIR, "stale")
+            _retire(path, "stale")
             vdb = Chroma(persist_directory=db_dir_for_chroma(), embedding_function=make_embedding())
 
             # 分批入库：一次性 embed 1000+ 个块会把 Ollama 压垮（实测报 tokenize 连接错误），
@@ -625,15 +652,18 @@ def _ensure_index():
 
 
 def __getattr__(name: str):
-    """PEP 562：让 `ta.vectordb` / `ta.splits` 惰性可用，兼容原来的模块级访问。
+    """PEP 562：让 `ta.vectordb` / `ta.splits` / `ta.DB_DIR` 惰性可用。
 
     只在常规属性查找失败时才被调用，所以对已存在的名字零影响。
-    刻意只放行这两个名字：其他拼错的属性照旧抛 AttributeError，
+    刻意只放行这三个名字：其他拼错的属性照旧抛 AttributeError，
     不会把"写错属性名"变成"悄悄触发建库"。
     """
     if name in ("vectordb", "splits"):
         vdb, sp = _ensure_index()
         return vdb if name == "vectordb" else sp
+    if name == "DB_DIR":
+        # 兼容旧写法（测试里用 ta.DB_DIR）。不触发建库，只算一次语料指纹。
+        return db_dir()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -925,11 +955,18 @@ class TrimmingHistory(InMemoryChatMessageHistory):
             self.messages = self.messages[-limit:]
 
 
+# 会话历史与翻译缓存都是**进程级全局状态**，必须有上限。
+# ⚠️ 交互模式只用固定的 SESSION_ID、每次 ask() 结束还会 pop 掉，所以正常用不到上限；
+#    但一旦这个模块被当成库用（外部不断换 session_id），没有上限就是缓慢泄漏。
+_HISTORY_MAX = 64
 store: dict[str, TrimmingHistory] = {}
 
 
 def get_session_history(session_id: str) -> TrimmingHistory:
     if session_id not in store:
+        if len(store) >= _HISTORY_MAX:
+            # 淘汰最老的一条（FIFO）。丢历史比无限占内存好。
+            store.pop(next(iter(store)), None)
         store[session_id] = TrimmingHistory()
     return store[session_id]
 

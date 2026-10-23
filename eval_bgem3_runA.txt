@@ -1,8 +1,8 @@
 Building prefix dict from the default dictionary ...
-Loading model from cache C:\Users\黄计云\AppData\Local\Temp\jieba.cache
+Loading model from cache <tmp>\jieba.cache
 Loading model cost 0.672 seconds.
 Prefix dict has been built successfully.
-C:\Users\黄计云\Desktop\ic_demo\eval_fastapi.py:30: LangChainPendingDeprecationWarning: RunnableWithMessageHistory is deprecated. Use LangGraph's built-in persistence instead.
+<repo>\eval_fastapi.py:30: LangChainPendingDeprecationWarning: RunnableWithMessageHistory is deprecated. Use LangGraph's built-in persistence instead.
   spec.loader.exec_module(ta)
 【已加载持久化知识库】
 ======================================================================

@@ -47,8 +47,8 @@
 !/eval_bgem3_runA.txt
 # 旧题集最终配置 → L1 23/29（来源命中 21/24）
 !/eval_glm_newruler.txt
-# 新 50 题集（2026-10-22 重挑）→ L1 45/50、L2 50/50
-!/eval_glm_50set.txt
+# 新 50 题集（2026-10-22 重挑，2026-10-23 换 DeepSeek 重跑）→ L1 47/50、L2 45→50/50
+!/eval_ark_50set.txt
 #
 # 原先还跟踪了 eval_bm25_gate.txt，用来证明"闸门必要"。但那份日志是**旧语料（AI Agent 书）**
 # 跑出来的（满篇 chapter10.md / 多 Agent 协作），放在 FastAPI 仓库里只会误导人 ——
