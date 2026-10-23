@@ -52,6 +52,36 @@ jobs:
       - name: 语法检查
         run: python -m py_compile 14-ai_agent_assistant.py eval_cases.py eval_judge.py eval_fastapi.py test_retrieval.py conftest.py
 
+      - name: README 自检（防「全量 0 条」这类误删）
+        run: |
+          # 起因：批量替换文档时把"全量 114 条"写成了"全量 0 条"，两次都没在
+          # 自己的复查里发现（复查用的 grep 模式太窄，只匹配了「0 条用例」）。
+          # 这里用 CI 兜住 —— 文档数字错了，代码可以全绿，但读者看到的是错的。
+          #
+          # 只查「用例/行数」语境的 0，避免误伤「向量 0 条过阈值」这类技术描述；
+          # 前面加 [^0-9] 是必须的，否则「10 条用例」会被「0 条用例」误伤。
+          if grep -nE "(^|[^0-9])(全量 0 条|用例数 0|0 用例|0 条用例|约 0 行)" README.md; then
+            echo "::error::README 里有为 0 的数字，多半是批量替换时误删了前缀"
+            exit 1
+          fi
+
+      - name: README 的用例数与实际收集数一致
+        run: |
+          # 上一条只能抓「0 值」，抓不到「用例数 113」这种差一位的错。
+          # 这条直接对账：README 里必须有一处写着真实用例数。
+          # ⚠️ 不能用 `tail -1 | grep`：collect-only 的最后一行是**空行**
+          #    （Windows 上还带 CR），grep 必然取空。必须先 grep 再 tail。
+          actual=$(pytest --collect-only -q -p no:warnings 2>/dev/null | grep -oE "[0-9]+" | tail -1)
+          echo "实际收集：$actual 条"
+          if [ -z "$actual" ]; then
+            echo "::error::没解析出用例数，collect-only 的输出格式变了？"
+            exit 1
+          fi
+          grep -qE "$actual (用例|条)" README.md || {
+            echo "::error::README 里找不到「$actual 条」——用例数变了，同步 README"
+            exit 1
+          }
+
       - name: 零依赖用例（判据不泄题 / 库名带模型 / import 无副作用 / 前置检查）
         run: pytest -m "not llm and not needs_index" --tb=short -p no:warnings
 
