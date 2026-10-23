@@ -37,7 +37,17 @@ jobs:
           cache: pip
 
       - name: 安装依赖
-        run: pip install -r requirements.txt
+        run: |
+          set -o pipefail
+          if ! pip install -r requirements.txt 2>&1 | tee /tmp/pip.log; then
+            # ⚠️ 为什么要把错误 echo 成 ::error:: ——
+            # Actions 的日志只有仓库有权限的人能看（匿名 API 读 /logs 返回 403），
+            # 而 annotation 是公开可读的。把关键错误塞进注解，排查时不用登录。
+            msg=$(grep -E "ERROR|No matching distribution|Could not find|Conflict|Failed building" /tmp/pip.log | tail -3 | tr '\n' ' ')
+            echo "::error::依赖安装失败：${msg:-未知原因，见完整日志}"
+            tail -40 /tmp/pip.log
+            exit 1
+          fi
 
       - name: 语法检查
         run: python -m py_compile 14-ai_agent_assistant.py eval_cases.py eval_judge.py eval_fastapi.py test_retrieval.py conftest.py
