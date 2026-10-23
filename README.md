@@ -1,6 +1,6 @@
 # 中文问答 · FastAPI 官方文档助手（RAG）
 
-[![tests](https://github.com/YUN-248710/fastapi-docs-rag/actions/workflows/tests.yml/badge.svg)](https://github.com/YUN-248710/fastapi-docs-rag/actions/workflows/tests.yml)
+[![tests](https://github.com/yun-248710/fastapi-docs-rag/actions/workflows/tests.yml/badge.svg)](https://github.com/yun-248710/fastapi-docs-rag/actions/workflows/tests.yml)
 
 > **中文提问 → 查英文官方文档 → 用中文回答，并标注答案出自哪个文件。**
 >
