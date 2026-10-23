@@ -219,6 +219,74 @@ def test_threshold_sits_in_the_score_gap(ta, raw_scores):
     )
 
 
+def test_import_does_not_build_index():
+    """【import 副作用】导入模块不应读语料 / 开向量库 / 建 BM25
+
+    踩坑记录：这些事原来写在模块级，于是 `import` 一次要 5~10 秒 ——
+    跑分脚本、trace 渲染、IDE 补全、pytest 收集阶段全都要先付这笔钱，
+    而它们大多数根本不检索。
+
+    ⚠️ 必须用子进程测：本会话里 ta 早被别的用例触发过，
+       进程内的 _INDEX["ready"] 一定是 True，测不出 import 时刻的状态。
+    """
+    import json
+    import subprocess
+    import sys
+
+    ta_file = ROOT / "14-ai_agent_assistant.py"
+    code = (
+        "import importlib.util, json, time\n"
+        f"t = time.time()\n"
+        f"spec = importlib.util.spec_from_file_location('ta', r'{ta_file}')\n"
+        "m = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(m)\n"
+        "print(json.dumps({'ready': m._INDEX['ready'], 'sec': round(time.time() - t, 2)}))\n"
+    )
+    r = subprocess.run([sys.executable, "-c", code], cwd=str(ROOT),
+                       capture_output=True, text=True, timeout=180,
+                       env={**__import__("os").environ, "QUERY_TRANSLATION": "0"})
+    assert r.returncode == 0, f"子进程 import 失败：\n{r.stderr[-800:]}"
+
+    info = json.loads(r.stdout.strip().splitlines()[-1])
+    assert info["ready"] is False, (
+        "\nimport 阶段就把索引建好了 —— 惰性化失效了。"
+        "\n→ 检查是否有模块级代码又调用了 _ensure_index() / build_splits() / Chroma(...)"
+    )
+
+    # 光看 ready 还不够：如果有人把 build_splits() 留在模块级、只是不打开库，
+    # ready 仍是 False，但语料已经被读完了。用副作用痕迹兜住。
+    noise = r.stdout + r.stderr
+    for marker in ("已加载持久化知识库", "正在构建知识库向量库", "已给", "Building prefix dict"):
+        assert marker not in noise, (
+            f"\nimport 阶段出现了「{marker}」—— 说明读语料 / 建 BM25 仍在模块级执行。"
+            f"\n完整输出：\n{noise[-800:]}"
+        )
+
+    # 耗时只做宽松护栏（第三方包本身的导入就要几秒，不归我们管），
+    # 目的是拦住"把建库写回模块级"这种回退（那会让 import 变成 20 秒以上）。
+    assert info["sec"] < 15, f"\nimport 耗时 {info['sec']}s，模块级仍有重活"
+
+
+def test_check_runtime_reports_missing_docs(ta, monkeypatch, tmp_path):
+    """【前置检查】语料目录不存在时，必须给出能照做的提示，而不是抛原始异常
+
+    对外部方案的修正：原写法用 SystemExit，在 pytest 里会中断整个 session；
+    这里 check_runtime 只**返回**问题清单，由调用方决定退出还是跳过。
+    """
+    monkeypatch.setattr(ta, "docs_dir", str(tmp_path / "no_such_dir"))
+    problems = ta.check_runtime()
+    assert any("找不到语料目录" in p for p in problems), (
+        f"\n语料缺失没有被报出来：{problems}"
+    )
+    # 空目录也要报：目录在、但一个可索引文件都没有，会建出空库
+    (tmp_path / "empty_docs").mkdir()
+    monkeypatch.setattr(ta, "docs_dir", str(tmp_path / "empty_docs"))
+    problems = ta.check_runtime()
+    assert any("没有可索引的文件" in p for p in problems), (
+        f"\n空语料目录没有被报出来：{problems}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # 四·五、行为评测：一致性与鲁棒性
 #   前面的用例测的是"这句话能不能查到"，测不到：

@@ -3,17 +3,19 @@
 #
 # 核心目的：把「加载被测模块」和「检索结果」都做成会话级缓存。
 #
-# 为什么必须缓存：
-#   导入 14-ai_agent_assistant.py 会触发：读 .env → 加载向量库 → 遍历 3929 个块
-#   建 BM25 索引（jieba 分词），本机约 5~10 秒。若每个用例都加载一次，
-#   55 个用例就是几分钟。session 级 fixture 只加载一次。
-#   检索结果同理：一个用例跑过的问题，后面的用例直接复用，不再调 embedding。
+# 关于加载成本（2026-10-23 改）：
+#   被测模块现在是**惰性索引** —— import 只加载代码（<1 秒），
+#   读语料 / 开向量库 / jieba 建 BM25 都推迟到第一次真正检索。
+#   所以下面的 session 级 fixture 主要是为了缓存「检索结果」，不再是为了 import。
+#   没有 Ollama 的机器上，检索类用例会整场 skip 并说明原因（见文件末尾的 hook）。
 # ============================================================================
 
 import importlib.util
 import os
+import socket
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 
@@ -28,6 +30,32 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 TA_FILE = ROOT / "14-ai_agent_assistant.py"
+
+
+def _ollama_alive(timeout: float = 2.0) -> bool:
+    """探测 Ollama 端口。
+
+    ⚠️ 为什么在 pytest 层探测，而不是让被测模块抛异常：
+    embedding 全靠本地 Ollama，没起来时每条检索用例都会以 ConnectionError 变红 ——
+    那是**环境没准备好**，不是代码有问题。让人看到 111 条红叉，比看到
+    "全部跳过：Ollama 未启动" 要糟得多：后者能立刻指出下一步做什么。
+    """
+    url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+    u = urlparse(url)
+    try:
+        with socket.create_connection((u.hostname or "localhost", u.port or 11434), timeout):
+            return True
+    except OSError:
+        return False
+
+
+def pytest_collection_modifyitems(config, items):
+    if _ollama_alive():
+        return
+    reason = "Ollama 未启动（检索类用例需要本地 embedding；先跑 ollama serve）"
+    for item in items:
+        if "llm" not in item.keywords:
+            item.add_marker(pytest.mark.skip(reason=reason))
 
 
 @pytest.fixture(scope="session")

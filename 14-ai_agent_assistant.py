@@ -23,9 +23,12 @@
 # ============================================================================
 
 import hashlib   # 用于计算文档哈希
+import json
 import os
 import sys
+import threading
 import time
+import urllib.request
 import uuid
 from pathlib import Path
 
@@ -235,10 +238,15 @@ def db_dir_for_chroma(path: str = DB_DIR) -> str:
         return path
 
 
+# Ollama 地址只留一处：check_runtime 探测它、make_embedding 连它。
+# 换成远端 Ollama（另一台机器跑 embedding）时改这一个变量即可。
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+
+
 def make_embedding() -> OllamaEmbeddings:
     return OllamaEmbeddings(
         model=EMBED_MODEL,
-        base_url="http://localhost:11434",
+        base_url=OLLAMA_BASE_URL,
     )
 
 
@@ -420,26 +428,16 @@ def build_splits() -> list:
     return splits
 
 
-# ---- 建库 or 加载（读语料是秒级的，先拿到"预期块数"再决定要不要碰向量库）----
-splits = build_splits()
-
-if not db_ready(DB_DIR, len(splits)):
-    print(f"【首次运行 / 库不完整】正在构建知识库向量库……（{len(splits)} 块）")
-    # 必须在打开库句柄**之前**挪走旧库（半截库、或切分参数变过留下的旧库）
-    _retire(DB_DIR, "stale")
-    vectordb = Chroma(persist_directory=db_dir_for_chroma(), embedding_function=make_embedding())
-
-    # 分批入库：一次性 embed 1000+ 个块会把 Ollama 压垮（实测报 tokenize 连接错误），
-    # 而且中途失败看不到进度。分批既稳，也能看到进展。
-    # 中断也不会污染正式库：进程退出后，下次启动 db_ready 会发现块数对不上 → 重建。
-    BATCH = 64
-    for i in range(0, len(splits), BATCH):
-        vectordb.add_documents(splits[i:i + BATCH])
-        print(f"  已入库 {min(i + BATCH, len(splits))}/{len(splits)} 块")
-    print("【知识库构建完成】")
-else:
-    vectordb = Chroma(persist_directory=db_dir_for_chroma(), embedding_function=make_embedding())
-    print(f"【已加载持久化知识库】{len(splits)} 块")
+# ---- 索引不在 import 时构建 ----
+# 这里原本是模块级代码：读 154 篇语料 → 切分 → 打开/构建向量库 → jieba 分词建 BM25，
+# import 一次 5~10 秒。于是任何"只想拿一个常量"的场景（跑分脚本、trace 渲染、
+# IDE 补全、pytest 收集阶段）都要先付这笔钱。
+#
+# 真正需要索引的入口只有三个：search() / bm25_search() / ask()。
+# 现在改成惰性构建，实现见下面 BM25 段的 _ensure_index()。
+#
+# 对外接口保持不变：`ta.vectordb` / `ta.splits` 仍然可用，
+# 由模块级 __getattr__（PEP 562）转发到 _ensure_index() —— 测试一行都不用改。
 
 # ---- BM25 关键词索引（与向量库同源），治跨语言 / 专有名词 miss ----
 import re
@@ -533,10 +531,110 @@ def _tokenize(text: str):
     ]
 
 
-_kb = vectordb.get()
-_bm25_docs = [Document(page_content=t, metadata=m)
-              for t, m in zip(_kb["documents"], _kb["metadatas"])]
-_bm25 = BM25Okapi([_tokenize(d.page_content) for d in _bm25_docs])
+_INDEX: dict = {"ready": False, "vectordb": None, "splits": None,
+                "bm25": None, "bm25_docs": None}
+_INDEX_LOCK = threading.Lock()
+
+
+def check_runtime(require_llm: bool = False) -> list:
+    """体检：返回问题清单（空 = 就绪）。**只报告，不抛异常** —— 谁来处理由调用方决定。
+
+    ⚠️ 为什么不用 SystemExit（外部方案的写法）：
+      在 pytest 里它是【中断整个 session】的信号，不是"这条用例失败"。
+      库代码不替调用方做决定：脚本入口该退出就自己 sys.exit，测试该 skip 就自己 skip。
+
+    检查顺序按"用户第一眼能看到什么错"排：语料缺失 → Ollama 没起/模型没 pull
+    → ARK 配置不全（仅 require_llm）。这三类原始报错分别是 FileNotFoundError、
+    连接被拒、401 —— 全都看不出真正原因，所以值得提前探一遍。
+    """
+    problems = []
+    if not os.path.isdir(docs_dir):
+        problems.append(f"找不到语料目录：{docs_dir}")
+    elif not _index_files(docs_dir):
+        problems.append(f"{docs_dir} 下没有可索引的文件（支持：{', '.join(SUPPORTED_EXTS)}）")
+
+    try:
+        with urllib.request.urlopen(f"{OLLAMA_BASE_URL}/api/tags", timeout=3) as r:
+            names = {m.get("name", "") for m in json.loads(r.read().decode()).get("models", [])}
+        # Ollama 返回的 name 带 tag（bge-m3:latest），而配置里通常不写 tag
+        if not any(n == EMBED_MODEL or n.split(":")[0] == EMBED_MODEL for n in names):
+            problems.append(f"Ollama 里没有 {EMBED_MODEL} —— 先跑：ollama pull {EMBED_MODEL}")
+    except Exception as e:
+        problems.append(
+            f"连不上 Ollama（{OLLAMA_BASE_URL}，{type(e).__name__}）—— 先启动 ollama serve"
+        )
+
+    if require_llm:
+        problems.extend(_PROBLEMS)
+    return problems
+
+
+def _ensure_index():
+    """索引的唯一入口：语料 → 切分 → 向量库 → BM25。幂等，只有第一次真正干活。
+
+    📌 为什么连 build_splits() 也要懒加载，而不是只懒加载向量库：
+      它是"预期块数"的唯一来源，而预期块数要读完全部语料才算得出来 —— 读语料
+      本身（154 篇 ≈ 1.5 秒）就是建库成本的大头，留在模块级等于白改。
+
+    ⚠️ 已知边界：这是**进程内单例**。多 worker 部署（uvicorn --workers 4）时每个
+       进程各建一份，内存 ×N。当前规模（1919 块）可接受；真要上多 worker，
+       应该把索引挪到独立服务，或换成支持共享映射的向量库。
+    """
+    if _INDEX["ready"]:
+        return _INDEX["vectordb"], _INDEX["splits"]
+
+    with _INDEX_LOCK:
+        if _INDEX["ready"]:                     # 双检：等锁期间别的线程可能已经建好
+            return _INDEX["vectordb"], _INDEX["splits"]
+
+        problems = check_runtime()
+        if problems:
+            raise RuntimeError(
+                "知识库无法就绪：\n  · " + "\n  · ".join(problems) +
+                "\n（只跑检索回归需要 语料 + Ollama；调生成模型还需要 .env 里的 ARK_* 配置）"
+            )
+
+        splits = build_splits()
+        if not db_ready(DB_DIR, len(splits)):
+            print(f"【首次运行 / 库不完整】正在构建知识库向量库……（{len(splits)} 块）")
+            # 必须在打开库句柄**之前**挪走旧库（半截库、或切分参数变过留下的旧库）
+            _retire(DB_DIR, "stale")
+            vdb = Chroma(persist_directory=db_dir_for_chroma(), embedding_function=make_embedding())
+
+            # 分批入库：一次性 embed 1000+ 个块会把 Ollama 压垮（实测报 tokenize 连接错误），
+            # 而且中途失败看不到进度。分批既稳，也能看到进展。
+            # 中断也不会污染正式库：进程退出后，下次启动 db_ready 会发现块数对不上 → 重建。
+            BATCH = 64
+            for i in range(0, len(splits), BATCH):
+                vdb.add_documents(splits[i:i + BATCH])
+                print(f"  已入库 {min(i + BATCH, len(splits))}/{len(splits)} 块")
+            print("【知识库构建完成】")
+        else:
+            vdb = Chroma(persist_directory=db_dir_for_chroma(), embedding_function=make_embedding())
+            print(f"【已加载持久化知识库】{len(splits)} 块")
+
+        # BM25 与向量库同源：都取库里的块，保证两条检索路看到的是同一批数据
+        kb = vdb.get()
+        bm25_docs = [Document(page_content=t, metadata=m)
+                     for t, m in zip(kb["documents"], kb["metadatas"])]
+        _INDEX.update(
+            ready=True, vectordb=vdb, splits=splits, bm25_docs=bm25_docs,
+            bm25=BM25Okapi([_tokenize(d.page_content) for d in bm25_docs]),
+        )
+        return vdb, splits
+
+
+def __getattr__(name: str):
+    """PEP 562：让 `ta.vectordb` / `ta.splits` 惰性可用，兼容原来的模块级访问。
+
+    只在常规属性查找失败时才被调用，所以对已存在的名字零影响。
+    刻意只放行这两个名字：其他拼错的属性照旧抛 AttributeError，
+    不会把"写错属性名"变成"悄悄触发建库"。
+    """
+    if name in ("vectordb", "splits"):
+        vdb, sp = _ensure_index()
+        return vdb if name == "vectordb" else sp
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def bm25_search(question: str, k: int = BM25_K):
@@ -549,6 +647,9 @@ def bm25_search(question: str, k: int = BM25_K):
     `advanced/response-cookies` 顶上来，正确页被挤出唯一位子。替换 = 按下葫芦浮起瓢；
     并集 = 两条腿各投一票。
     """
+    _ensure_index()                      # 惰性：第一次调用才建 BM25 索引
+    bm25, bm25_docs = _INDEX["bm25"], _INDEX["bm25_docs"]
+
     queries = [question]
     translated = _translate_for_bm25(question)
     if translated != question:
@@ -559,14 +660,14 @@ def bm25_search(question: str, k: int = BM25_K):
         tokens = _tokenize(q)
         if not tokens:                  # 全是标点/停用词 → 这条 query 放弃补召
             continue
-        for i, s in enumerate(_bm25.get_scores(tokens)):
+        for i, s in enumerate(bm25.get_scores(tokens)):
             if s > best.get(i, 0.0):
                 best[i] = float(s)
 
     if not best:
         return []
     order = sorted(best, key=lambda i: -best[i])[:k]
-    return [(_bm25_docs[i], best[i]) for i in order if best[i] > 0]
+    return [(bm25_docs[i], best[i]) for i in order if best[i] > 0]
 
 # ---------------- 2. API 大模型 ----------------
 # 注：V4.1 Flash 是深度思考模型，默认会把大量 token 花在内部推理上。
@@ -703,7 +804,8 @@ def format_docs(docs):
 
 def search(question: str):
     """带分数的检索，返回 (doc, score) 列表；全文唯一的向量检索入口"""
-    return vectordb.similarity_search_with_relevance_scores(question, k=VECTOR_K)
+    vdb, _ = _ensure_index()             # 惰性：第一次调用才读语料 / 开库
+    return vdb.similarity_search_with_relevance_scores(question, k=VECTOR_K)
 
 
 def _describe(d, score=None) -> dict:
@@ -917,7 +1019,16 @@ def ask(question: str) -> str:
 
 
 if __name__ == "__main__":
-    _require_config()      # 脚本入口：配置不全就别往下走，一次列全缺哪些
+    # 前置体检：把三类最常见的失败（语料目录找不到 / Ollama 没起或模型没 pull /
+    # .env 没填）变成一句能照做的提示，而不是几十行 traceback 让人去猜。
+    # 放在这里而不是模块级：import 这个模块（评测脚本、trace 工具）不该被运行环境卡住。
+    _problems = check_runtime(require_llm=True)
+    if _problems:
+        print("无法启动，先解决下面几项：", file=sys.stderr)
+        for _p in _problems:
+            print("  ·", _p, file=sys.stderr)
+        sys.exit(1)
+
     print("=" * 60)
     print("FastAPI 文档助手「小助」已上线（输入 退出 结束对话）")
     print("=" * 60)
