@@ -18,6 +18,12 @@
 !/LICENSE
 !/.env.example
 
+# ---- CI ----
+# 白名单模式下 .github/ 默认被 /* 挡住，必须显式放行（且要放行到文件，不能只放行目录）
+!/.github/
+!/.github/workflows/
+!/.github/workflows/tests.yml
+
 # ---- 主程序 ----
 !/14-ai_agent_assistant.py
 

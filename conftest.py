@@ -50,11 +50,25 @@ def _ollama_alive(timeout: float = 2.0) -> bool:
 
 
 def pytest_collection_modifyitems(config, items):
+    """给需要索引的用例打 marker；没有 Ollama 时只跳过这一类。
+
+    ⚠️ 为什么不整场 skip（上一版做法）：那样"CI 绿"是假的 ——
+       连「L2 判据不泄题」「库名带模型名」这类纯元测试都不会跑。
+       现在按依赖分级：
+         · 用到 retrieve / raw_scores 的 → 自动标 needs_index（必然要 embedding）
+         · 手工标了的（ghost / db_ready）→ 直接用 ta.vectordb / ta.splits，同样要
+         · 其余（判据、命名、import 惰性、check_runtime 错误分支）→ 零依赖，永远能跑
+    """
+    for item in items:
+        if {"retrieve", "raw_scores"} & set(getattr(item, "fixturenames", ())):
+            item.add_marker(pytest.mark.needs_index)
+
     if _ollama_alive():
         return
-    reason = "Ollama 未启动（检索类用例需要本地 embedding；先跑 ollama serve）"
+
+    reason = "需要本地 Ollama（embedding）；先跑 ollama serve && ollama pull bge-m3"
     for item in items:
-        if "llm" not in item.keywords:
+        if "needs_index" in item.keywords:
             item.add_marker(pytest.mark.skip(reason=reason))
 
 

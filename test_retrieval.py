@@ -109,6 +109,7 @@ def test_oob_edge_case_fastapi_training(retrieve):
 # 四、元测试：把三个踩过的「静默失败」钉成永久防线
 #     它们不报错、只让结果悄悄变坏，所以必须用测试兜住。
 # ---------------------------------------------------------------------------
+@pytest.mark.needs_index
 def test_no_ghost_documents_in_index(ta):
     """【幽灵文档】向量库里不应残留已从 docs 目录删掉的文件
 
@@ -141,6 +142,7 @@ def test_db_dir_encodes_embedding_model(ta):
     )
 
 
+@pytest.mark.needs_index
 def test_db_ready_rejects_partial_library(ta, tmp_path):
     """【半截库】块数对不上时必须判为「不就绪」
 

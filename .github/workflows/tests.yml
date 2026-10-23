@@ -1,0 +1,107 @@
+# ============================================================================
+# CI：两层，按「需不需要embedding」分开
+#
+#   unit      每次 push / PR 都跑，约 1 分钟。只跑零依赖的元测试 ——
+#             判据会不会泄题、库名有没有带模型名、import 有没有副作用、
+#             缺语料时前置检查能不能报出来。这些不需要语料、不需要 Ollama。
+#
+#   retrieval 手动触发（Actions 页面点 Run workflow），约 8 分钟。
+#             装 Ollama + 拉 bge-m3 + 拉 FastAPI 语料 + 建库 + 跑全量 113 条。
+#             不放进 push 流程的原因：bge-m3 有 1.2 GB，每次 push 都下载太浪费，
+#             而且模型下载慢会超时，红的概率比代码出错还高 —— 那种红没有信息量。
+#
+# ⚠️ 为什么 unit 用 "not needs_index" 而不是让 pytest 自己 skip：
+#    跳过也算绿。真出了「判据泄题」这种退化，skip 的 CI 看不出来。
+#    这里显式只选零依赖的用例，跑 5 条就必须是 5 条 passed。
+# ============================================================================
+
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:        # 手动触发完整检索回归
+
+jobs:
+  unit:
+    name: 元测试（零依赖，约 1 分钟）
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 语法检查
+        run: python -m py_compile 14-ai_agent_assistant.py eval_cases.py eval_judge.py eval_fastapi.py test_retrieval.py conftest.py
+
+      - name: 零依赖用例（判据不泄题 / 库名带模型 / import 无副作用 / 前置检查）
+        run: pytest -m "not llm and not needs_index" --tb=short -p no:warnings
+
+      - name: 确认真的跑了 5 条（防止被 skip 成假绿）
+        run: |
+          # ⚠️ 两个坑都踩过：
+          #   1) 不能直接 tail -1 —— 有 warning 时最后一行是 "-- Docs: ..."，
+          #      grep "5 passed" 永远不匹配，CI 会以错误的理由变红。
+          #   2) 这里不能再加 -q —— pytest.ini 的 addopts 里已经有 -q，
+          #      叠加成 -qq 会连汇总行都不打印，grep 拿到空字符串。
+          out=$(pytest -m "not llm and not needs_index" -p no:warnings | grep -E "passed|failed" | tail -1)
+          echo "summary: $out"
+          echo "$out" | grep -q "5 passed" || {
+            echo "::error::预期 5 条通过，实际：$out"
+            exit 1
+          }
+
+  retrieval:
+    name: 完整检索回归（手动触发，约 8 分钟）
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 安装 Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:11434/api/tags >/dev/null && break
+            sleep 2
+          done
+
+      - name: 拉 embedding 模型（1.2 GB）
+        run: ollama pull bge-m3
+
+      - name: 拉 FastAPI 官方文档作为语料
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://github.com/fastapi/fastapi.git /tmp/fastapi-docs
+          cd /tmp/fastapi-docs && git sparse-checkout set docs/en/docs
+          cp -r /tmp/fastapi-docs/docs/en/docs ./docs_fastapi
+          echo "语料文件数：$(find docs_fastapi -name '*.md' | wc -l)"
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 全量回归（首次会建库：1919 块，约 2~5 分钟）
+        run: pytest -v
+
+      - name: 上传建好的向量库（便于排查）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chroma-db
+          path: chroma_db_ta*/
+          retention-days: 3
